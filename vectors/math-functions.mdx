@@ -1,0 +1,209 @@
+---
+title: "Element-Wise Math Functions for Linea Vector Types"
+sidebarTitle: "Math Functions"
+description: "Free functions sin, cos, tan, sqrt, log, and exp applied element-wise to Linea::Vector<V>, each controlled by a compile-time DomainCheck policy."
+---
+
+Linea provides six element-wise mathematical free functions for `Vector<V>` in `VectorMath.hpp`: `sin`, `cos`, `tan`, `sqrt`, `log`, and `exp`. Each function visits every element of the input vector, applies the corresponding `<cmath>` operation via a RESTRICT-qualified raw-pointer loop, and returns a new vector of the same size. Three of the six functions — `tan`, `sqrt`, and `log` — accept a compile-time `DomainCheck` template parameter that lets you choose between runtime domain validation and unchecked maximum-performance execution at the call site, without any branching overhead at runtime.
+
+<Note>
+These are scalar, element-wise applications of `std::sin`, `std::cos`, etc. They are **not** matrix functions. In particular, `exp` computes `eˣ` for each element `x` — it is not the matrix exponential `e^A`. If you need a matrix exponential or a matrix trigonometric function, those require a decomposition-based approach not covered here.
+</Note>
+
+---
+
+## Type Constraint
+
+All six functions require `RealType<N>`, which means `N` must be a floating-point type (`float`, `double`, `long double`). They are **not available for integral vectors** such as `Vector<int>` or `Vector<long>`. Attempting to instantiate them with an integral type is a compile-time error.
+
+---
+
+## `DomainCheck` Policy
+
+The `DomainCheck` enum is defined in `Linea::` (see `Types.hpp`):
+
+```cpp
+enum class DomainCheck {
+    Enable,  // runtime domain validation — throws std::domain_error on bad input
+    Disable  // no validation — follows standard library behavior, maximum speed
+};
+```
+
+`DomainCheck` is a **template parameter**, resolved at compile time. Selecting `Disable` costs zero runtime cycles — the validation code is never emitted. You must specify it explicitly when calling `tan`, `sqrt`, or `log`.
+
+<Tip>
+Use `DomainCheck::Enable` during development and testing to catch invalid inputs early. Switch to `DomainCheck::Disable` in production hot paths once the inputs have been validated upstream — this removes branch instructions from the inner loop and allows the compiler to optimize more aggressively.
+</Tip>
+
+---
+
+## Functions Without Domain Restriction
+
+These functions have no constrained domain for real inputs, so they do not accept a `DomainCheck` parameter.
+
+### `sin`
+
+```cpp
+template <RealType N>
+Vector<N> sin(const Vector<N>& vec);
+```
+
+Applies `std::sin` element-wise. Returns a new `Vector<N>` of the same size.
+
+```cpp
+Linea::Vector<double> angles{0.0, 1.5707963, 3.1415926};
+auto s = Linea::sin(angles); // ≈ {0.0, 1.0, 0.0}
+```
+
+---
+
+### `cos`
+
+```cpp
+template <RealType N>
+Vector<N> cos(const Vector<N>& vec);
+```
+
+Applies `std::cos` element-wise. Returns a new `Vector<N>` of the same size.
+
+```cpp
+Linea::Vector<double> angles{0.0, 1.5707963, 3.1415926};
+auto c = Linea::cos(angles); // ≈ {1.0, 0.0, -1.0}
+```
+
+---
+
+### `exp`
+
+```cpp
+template <RealType N>
+Vector<N> exp(const Vector<N>& vec);
+```
+
+Applies `std::exp` (i.e., eˣ) element-wise. Returns a new `Vector<N>` of the same size.
+
+```cpp
+Linea::Vector<double> v{0.0, 1.0, 2.0};
+auto e = Linea::exp(v); // ≈ {1.0, 2.718, 7.389}
+```
+
+---
+
+## Functions With `DomainCheck` Policy
+
+These functions have restricted domains. Pass `DomainCheck::Enable` or `DomainCheck::Disable` as the first (explicit) template argument. The second template argument `N` is deduced from the function argument.
+
+### `tan`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Vector<N> tan(const Vector<N>& vec);
+```
+
+Applies `std::tan` element-wise.
+
+- **With `DomainCheck::Enable`:** throws `std::domain_error` naming the offending element index if `|cos(vec[i])| < 1e-12` (i.e., the input is near a pole of tangent such as π/2, 3π/2, …).
+- **With `DomainCheck::Disable`:** applies `std::tan` unconditionally.
+
+```cpp
+Linea::Vector<double> v{0.0, 0.7854, 1.0472}; // 0, π/4, π/6
+
+// With domain validation:
+auto t1 = Linea::tan<Linea::DomainCheck::Enable>(v);
+
+// Without validation (maximum performance):
+auto t2 = Linea::tan<Linea::DomainCheck::Disable>(v);
+```
+
+---
+
+### `sqrt`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Vector<N> sqrt(const Vector<N>& vec);
+```
+
+Applies `std::sqrt` element-wise.
+
+- **With `DomainCheck::Enable`:** throws `std::domain_error` naming the offending element index if `vec[i] < 0`.
+- **With `DomainCheck::Disable`:** applies `std::sqrt` unconditionally (negative inputs yield `NaN` per IEEE 754).
+
+```cpp
+Linea::Vector<double> v{1.0, 4.0, 9.0, 16.0};
+
+// With domain validation:
+auto r1 = Linea::sqrt<Linea::DomainCheck::Enable>(v);
+
+// Without validation (maximum performance):
+auto r2 = Linea::sqrt<Linea::DomainCheck::Disable>(v);
+```
+
+---
+
+### `log`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Vector<N> log(const Vector<N>& vec);
+```
+
+Applies `std::log` (natural logarithm) element-wise.
+
+- **With `DomainCheck::Enable`:** throws `std::domain_error` naming the offending element index if `vec[i] <= 0`.
+- **With `DomainCheck::Disable`:** applies `std::log` unconditionally (zero yields `-∞`, negative yields `NaN` per IEEE 754).
+
+```cpp
+Linea::Vector<double> v{1.0, 2.718281828, 10.0};
+
+// With domain validation:
+auto l1 = Linea::log<Linea::DomainCheck::Enable>(v);
+
+// Without validation (maximum performance):
+auto l2 = Linea::log<Linea::DomainCheck::Disable>(v);
+```
+
+---
+
+## Complete Example
+
+```cpp
+#include <Linea.hpp>
+
+int main() {
+    Linea::Vector<double> angles{0.0, 1.0, 2.0, 3.0};
+
+    // No DomainCheck needed — sin, cos, exp are unrestricted
+    auto s = Linea::sin(angles);
+    auto c = Linea::cos(angles);
+    auto e = Linea::exp(angles);
+
+    // sqrt requires explicit DomainCheck template argument
+    auto sq = Linea::sqrt<Linea::DomainCheck::Enable>(angles);
+
+    // tan with validation
+    Linea::Vector<double> safe_angles{0.0, 0.5, 1.0};
+    auto t = Linea::tan<Linea::DomainCheck::Enable>(safe_angles);
+
+    // log — input must be strictly positive when Enable is used
+    Linea::Vector<double> pos{1.0, 2.0, 4.0, 8.0};
+    auto lg = Linea::log<Linea::DomainCheck::Enable>(pos);
+
+    return 0;
+}
+```
+
+---
+
+## Summary Table
+
+| Function | Domain restriction | DomainCheck param | Throws when enabled |
+|---|---|---|---|
+| `sin` | none | — | — |
+| `cos` | none | — | — |
+| `exp` | none | — | — |
+| `tan` | \|cos(x)\| ≥ 1e-12 | required | `std::domain_error` at pole |
+| `sqrt` | x ≥ 0 | required | `std::domain_error` if x < 0 |
+| `log` | x > 0 | required | `std::domain_error` if x ≤ 0 |
+
+All functions are O(n), allocate exactly one output vector, and use RESTRICT-qualified pointers in the inner loop for cache-friendly, vectorization-friendly traversal.

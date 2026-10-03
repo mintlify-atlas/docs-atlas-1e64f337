@@ -1,0 +1,195 @@
+---
+title: "Linea Type System: Concepts and Scalar Promotion"
+sidebarTitle: "Type System"
+description: "How Linea uses C++20 concepts to enforce numeric scalar types at compile time, and how mixed-type arithmetic is handled through Numeric<T,S> promotion."
+---
+
+Linea uses three C++20 concepts — `RealType`, `IntegralType`, and `NumericType` — to enforce at compile time that every scalar used in a `Vector` or `Matrix` belongs to a mathematically meaningful numeric domain. Character types and booleans are explicitly excluded, preventing accidental misuse of encoding types in arithmetic contexts. The `Numeric<T, S>` alias then governs how promotion works when two differently typed objects interact in a single expression.
+
+## Core Concepts
+
+The three concepts are defined in `include/Linea/Core/Concepts.hpp` and form a hierarchy from most restrictive (`RealType`) to most permissive (`NumericType`).
+
+### `RealType<T>`
+
+Accepts only C++ floating-point types. Used by algorithms that require division, machine epsilon, norm computations, and matrix decompositions.
+
+```cpp
+template <typename T>
+concept RealType = std::is_floating_point_v<T>;
+```
+
+Satisfied by: `float`, `double`, `long double`.
+
+### `IntegralType<T>`
+
+Accepts integer types, but deliberately excludes all character and boolean types. The `sizeof(T) >= sizeof(int)` constraint ensures the type is at least as wide as a 32-bit integer on all conforming platforms.
+
+```cpp
+template <typename T>
+concept IntegralType =
+    std::is_integral_v<T> && !std::is_same_v<T, bool> &&
+    !std::is_same_v<T, char> && !std::is_same_v<T, signed char> &&
+    !std::is_same_v<T, unsigned char> && !std::is_same_v<T, wchar_t> &&
+    !std::is_same_v<T, char8_t> && !std::is_same_v<T, char16_t> &&
+    !std::is_same_v<T, char32_t> && (sizeof(T) >= sizeof(int));
+```
+
+Satisfied by: `int`, `unsigned int`, `long`, `unsigned long`, `long long`, `unsigned long long`.
+
+### `NumericType<T>`
+
+The union of `IntegralType` and `RealType`. This is the constraint applied to `Vector<V>` and `Matrix<M>` template parameters.
+
+```cpp
+template <typename T>
+concept NumericType = IntegralType<T> || RealType<T>;
+```
+
+Mathematically, `NumericType` spans **ℤ ∪ ℝ** — the integers and the reals.
+
+---
+
+## Admissible and Excluded Types
+
+<Tabs>
+  <Tab title="Valid Types">
+    | Type | Concept Satisfied | Notes |
+    |---|---|---|
+    | `int` | `IntegralType`, `NumericType` | 32-bit signed integer |
+    | `unsigned int` | `IntegralType`, `NumericType` | 32-bit unsigned |
+    | `long` | `IntegralType`, `NumericType` | Platform-dependent width |
+    | `unsigned long` | `IntegralType`, `NumericType` | Platform-dependent width |
+    | `long long` | `IntegralType`, `NumericType` | 64-bit signed |
+    | `unsigned long long` | `IntegralType`, `NumericType` | 64-bit unsigned |
+    | `float` | `RealType`, `NumericType` | 32-bit IEEE 754 |
+    | `double` | `RealType`, `NumericType` | 64-bit IEEE 754 |
+    | `long double` | `RealType`, `NumericType` | Extended precision |
+  </Tab>
+  <Tab title="Invalid Types">
+    | Type | Reason Excluded |
+    |---|---|
+    | `bool` | Explicitly excluded from `IntegralType` |
+    | `char` | Excluded — encoding type, not arithmetic |
+    | `signed char` | Excluded — encoding type |
+    | `unsigned char` | Excluded — encoding type |
+    | `wchar_t` | Excluded — wide character encoding |
+    | `char8_t` | Excluded — UTF-8 code unit |
+    | `char16_t` | Excluded — UTF-16 code unit |
+    | `char32_t` | Excluded — UTF-32 code unit |
+    | `short` | Fails `sizeof(T) >= sizeof(int)` on most platforms |
+    | `unsigned short` | Fails `sizeof(T) >= sizeof(int)` on most platforms |
+    | `float*`, pointers | Not integral or floating-point |
+  </Tab>
+</Tabs>
+
+<Note>
+  Many operations that produce a scalar result — such as norms, distance, angle, mean, determinant, and all matrix decompositions — require `RealType<M>`, not just `NumericType<M>`. This is because they involve division or irrational operations (e.g. `sqrt`) that are undefined over the integers. If you construct a `Vector<int>` and call `.norm()`, the result is returned as `double`; however, algorithms like `inverse()`, `solve()`, and `determinant()` are constrained to `RealType` at the template level and will produce a **compile-time error** if instantiated with an integral scalar.
+</Note>
+
+---
+
+## Scalar Promotion: `Numeric<T, S>`
+
+When two objects with different scalar types interact — for example, adding a `Vector<int>` to a `Vector<double>` — Linea deduces the result scalar type via `Numeric<T, S>`, defined in `include/Linea/Core/Types.hpp`:
+
+```cpp
+template <NumericType T, NumericType S>
+using Numeric = std::common_type_t<T, S>;
+```
+
+This delegates to the standard C++ common-type rules, which follow the usual arithmetic promotion hierarchy:
+
+```cpp
+// int + double → double
+Vector<Numeric<int, double>> result = vi + vd;  // Vector<double>
+
+// int + long long → long long
+Vector<Numeric<int, long long>> result = vi + vll;  // Vector<long long>
+
+// float + double → double
+Matrix<Numeric<float, double>> result = Af + Ad;  // Matrix<double>
+```
+
+Both `T` and `S` must independently satisfy `NumericType`. The alias is used pervasively in mixed-type operator overloads for `Vector` and `Matrix` arithmetic, concatenation (`join`), and Hadamard products.
+
+---
+
+## Enumerations
+
+Linea defines several strongly-typed enumerations in `include/Linea/Core/Types.hpp` that act as compile-time and runtime policies.
+
+### `MatrixNorm`
+
+Selects the norm variant for `Matrix::norm(MatrixNorm type)`.
+
+```cpp
+enum class MatrixNorm { Frobenius, One, Infinity, Spectral };
+```
+
+<Accordion title="Mathematical definitions">
+  | Enumerator | Formula | Description |
+  |---|---|---|
+  | `Frobenius` | `‖A‖_F = √(Σᵢⱼ \|aᵢⱼ\|²)` | Root-sum-of-squares of all entries |
+  | `One` | `‖A‖₁ = maxⱼ Σᵢ \|aᵢⱼ\|` | Maximum absolute column sum |
+  | `Infinity` | `‖A‖∞ = maxᵢ Σⱼ \|aᵢⱼ\|` | Maximum absolute row sum |
+  | `Spectral` | `‖A‖₂ = σ_max(A)` | Largest singular value of A |
+</Accordion>
+
+### `VectorNorm`
+
+Selects the norm variant for `Vector::norm(VectorNorm type, double p)`.
+
+```cpp
+enum class VectorNorm { One, Two, Infinity, P };
+```
+
+<Accordion title="Mathematical definitions">
+  | Enumerator | Formula | Description |
+  |---|---|---|
+  | `One` | `‖x‖₁ = Σᵢ \|xᵢ\|` | Manhattan / taxicab norm |
+  | `Two` | `‖x‖₂ = √(Σᵢ xᵢ²)` | Euclidean norm |
+  | `Infinity` | `‖x‖∞ = maxᵢ \|xᵢ\|` | Maximum absolute value |
+  | `P` | `‖x‖ₚ = (Σᵢ \|xᵢ\|ᵖ)^(1/p)` | General Lp norm; requires `p ≥ 1` |
+</Accordion>
+
+### `ComputeMode`
+
+Controls the output size of matrix decompositions (e.g. SVD, QR).
+
+```cpp
+enum class ComputeMode { Thin, Full };
+```
+
+| Enumerator | Description |
+|---|---|
+| `Thin` | Economy-size (reduced) decomposition — only the first `min(m, n)` columns of orthogonal factors |
+| `Full` | Complete orthogonal basis — full `m × m` or `n × n` factor matrices |
+
+### `DomainCheck`
+
+Compile-time policy for transcendental functions (`tan`, `sqrt`, `log`).
+
+```cpp
+enum class DomainCheck { Enable, Disable };
+```
+
+| Enumerator | Behaviour |
+|---|---|
+| `DomainCheck::Enable` | Validates input at runtime; throws `std::domain_error` for invalid values |
+| `DomainCheck::Disable` | Skips all validation; follows standard library behaviour with no guards |
+
+See the [Error Handling](/concepts/error-handling) page for full details on when and how `DomainCheck` exceptions fire.
+
+### `Diagonal`
+
+Selects which diagonal to extract from a matrix.
+
+```cpp
+enum class Diagonal { Major, Minor };
+```
+
+| Enumerator | Condition | Description |
+|---|---|---|
+| `Major` | `i == j` | Main diagonal (top-left to bottom-right) |
+| `Minor` | `i + j == n - 1` | Anti-diagonal (top-right to bottom-left) |

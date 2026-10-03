@@ -1,0 +1,187 @@
+---
+title: "Linea Memory Layout and Storage Model"
+sidebarTitle: "Memory Model"
+description: "How Linea stores vectors and matrices in contiguous memory, including the row-major layout, raw pointer access, and SIMD-friendly design."
+---
+
+Linea stores every `Vector<V>` and `Matrix<M>` in a single `std::vector` of scalar values — no segmented buffers, no pointer-of-pointer layouts, no padding. This flat, contiguous design gives the compiler and hardware everything they need to vectorise loops automatically, enables direct interoperability with C APIs and BLAS-style routines via a raw pointer, and keeps allocation overhead identical to a single `std::vector` construction.
+
+## Vector Storage
+
+Internally, `Vector<V>` holds its data as:
+
+```cpp
+std::vector<V> data;
+```
+
+Elements are stored in natural index order with no gaps. The mapping from mathematical index to memory offset is the simplest possible:
+
+```
+v_i  ↦  data[i]
+```
+
+A vector of length `n` therefore occupies exactly `n * sizeof(V)` bytes starting at the address returned by `raw()`.
+
+## Matrix Storage: Row-Major Layout
+
+`Matrix<M>` stores its `m × n` entries in the same flat `std::vector<M>` structure:
+
+```cpp
+std::vector<M> data;   // length == rows * cols
+```
+
+The layout is **row-major**: all elements of row 0 come before all elements of row 1, and so on. The index mapping is:
+
+```
+a_{ij}  ↦  data[i * ncols + j]
+```
+
+This means iterating across a single row touches consecutive memory addresses, giving optimal cache utilisation for row-wise traversal — the most common access pattern in algorithms like matrix–vector products and Gaussian elimination.
+
+<Note>
+  `random()` on both `Vector` and `Matrix` uses a `thread_local` Mersenne Twister (`std::mt19937`) seeded from `std::random_device`. Because each thread owns its own engine, calls on distinct objects from different threads are safe with no synchronisation required. However, **concurrent mutation of the same object** is not protected and is undefined behaviour.
+</Note>
+
+---
+
+## Raw Pointer Access
+
+Both containers expose a `raw()` method that returns a pointer directly to the first element of the underlying `std::vector` storage:
+
+```cpp
+// Vector<V>
+[[nodiscard]] inline V *raw() noexcept;
+[[nodiscard]] inline const V *raw() const noexcept;
+
+// Matrix<M>
+[[nodiscard]] inline M *raw() noexcept;
+[[nodiscard]] inline const M *raw() const noexcept;
+```
+
+The pointer is stable as long as the container is not resized. Typical uses include passing data to external numerical libraries, writing SIMD-optimised loops manually, and interfacing with C APIs that accept a raw array.
+
+```cpp
+// Passing a matrix to a C-style BLAS-compatible routine
+Matrix<double> A(4, 4, 1.0);
+double* ptr = A.raw();                 // mutable pointer to A(0,0)
+
+// Read-only pass to a logging utility
+const Matrix<double>& cA = A;
+const double* cptr = cA.raw();        // const pointer
+
+// Iterate over all elements in row-major order
+std::size_t total = A.nrows() * A.ncols();
+for (std::size_t k = 0; k < total; ++k) {
+    ptr[k] *= 2.0;                    // in-place scale
+}
+```
+
+---
+
+## The `RESTRICT` Macro
+
+Performance-critical internal loops use a portability macro defined in `include/Linea/Core/PlatformMacros.hpp`:
+
+```cpp
+#if defined(__GNUC__) || defined(__clang__)
+#define RESTRICT __restrict__
+#elif defined(_MSC_VER)
+#define RESTRICT __restrict
+#else
+#define RESTRICT
+#endif
+```
+
+Applying `RESTRICT` to two pointer parameters tells the compiler that the memory regions they point to **do not overlap**. This eliminates the aliasing pessimism that would otherwise prevent auto-vectorisation: the compiler no longer needs to emit scalar fallback code to handle the case where `in` and `out` point to the same buffer.
+
+You will see this pattern throughout the Linea source wherever a loop writes to one buffer while reading from another:
+
+```cpp
+// Excerpt from Vector casting constructor
+auto* RESTRICT out = this->raw();
+auto* RESTRICT in  = other.raw();
+for (std::size_t i = 0; i < data.size(); ++i) {
+    out[i] = static_cast<V>(in[i]);
+}
+```
+
+On compilers that do not support restrict qualifiers the macro expands to nothing, so the code remains valid — just potentially slower.
+
+---
+
+## STL-Compatible Access
+
+### `data_ref()`
+
+Returns a `const` reference to the underlying `std::vector`, giving read-only access to the full STL container interface without exposing mutable internals:
+
+```cpp
+// Vector<V>
+const std::vector<V>& data_ref() const & noexcept;
+
+// Matrix<M>
+const std::vector<M>& data_ref() const &;
+```
+
+Use this to pass the storage to any STL algorithm or range-based consumer without copying:
+
+```cpp
+Vector<double> v{3.0, 1.0, 4.0, 1.0, 5.0};
+const auto& storage = v.data_ref();          // zero-copy reference
+
+// Works with any STL algorithm
+auto it = std::max_element(storage.begin(), storage.end());
+```
+
+### Iterators
+
+Both `Vector` and `Matrix` expose the full set of STL iterator types derived directly from `std::vector`:
+
+```cpp
+iterator               begin() / end()
+const_iterator         begin() const / end() const
+const_iterator         cbegin() / cend()
+reverse_iterator       rbegin() / rend()
+const_reverse_iterator rbegin() const / rend() const
+const_reverse_iterator crbegin() / crend()
+```
+
+All iterators are **random-access** and traverse elements in storage order — which for `Matrix` is row-major. This means range-based `for` loops and standard algorithms work on matrix data in the same order as the index formula `data[i * ncols + j]`.
+
+```cpp
+Matrix<int> M{{1, 2, 3},
+              {4, 5, 6}};
+
+// Prints: 1 2 3 4 5 6  (row-major order)
+for (auto val : M) {
+    std::cout << val << ' ';
+}
+
+// Use with STL algorithms
+auto total = std::accumulate(M.cbegin(), M.cend(), 0);  // 21
+```
+
+---
+
+## Memory Ownership
+
+Linea does not provide views, slices, or shared-ownership wrappers. Every operation that produces a new object — arithmetic, transpose, reshape, concatenation, row/column extraction — returns it **by value** with its own independently managed `std::vector` storage.
+
+<Tabs>
+  <Tab title="Value semantics">
+    ```cpp
+    Matrix<double> A(3, 3, 1.0);
+    Matrix<double> B = A.transpose();   // B owns its own storage
+    A(0, 0) = 99.0;                     // does not affect B
+    ```
+  </Tab>
+  <Tab title="No aliasing">
+    ```cpp
+    Vector<double> v{1.0, 2.0, 3.0};
+    Vector<double> w = v.segment(0, 2); // w is a new independent vector
+    v[0] = 42.0;                        // w[0] is still 1.0
+    ```
+  </Tab>
+</Tabs>
+
+This design trades the ability to form lightweight views for **predictable ownership semantics**: there are no dangling-reference hazards and no lifetime dependencies between objects.

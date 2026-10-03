@@ -1,0 +1,284 @@
+---
+title: "Formatting and Displaying Vectors and Matrices in Linea"
+sidebarTitle: "Stream Output"
+description: "Use Linea::IO::display() to print formatted vectors and matrices to any std::ostream with configurable precision, width, and notation."
+---
+
+The `Linea::IO` namespace provides non-intrusive stream output through the free function `display()`. Unlike `operator<<` overloads, `display()` accepts a dedicated format configuration struct — `MatrixFormat` or `VectorFormat` — that controls numeric precision, field width, notation style (fixed vs. scientific), and display orientation. Crucially, `display()` saves the original stream flags and precision before formatting and restores them afterward, so calling it never permanently alters the state of your `std::ostream`.
+
+## The `display()` Functions
+
+Both overloads live in `Linea::IO` and are defined in `<Linea/IO/StreamOperations.hpp>`. The format argument is optional; omitting it applies all defaults.
+
+```cpp
+// Matrix overload
+template <NumericType F>
+std::ostream& display(std::ostream& os,
+                      const Matrix<F>& matrix,
+                      const MatrixFormat& fmt = {});
+
+// Vector overload
+template <NumericType F>
+std::ostream& display(std::ostream& os,
+                      const Vector<F>& vector,
+                      const VectorFormat& fmt = {});
+```
+
+Both overloads return a reference to `os`, enabling call chaining. Both restore the stream's original `flags` and `precision` before returning.
+
+<Note>
+  `display()` lives in the `Linea::IO` namespace, not the root `Linea` namespace. Include `<Linea/IO/StreamOperations.hpp>` directly, or pull in everything at once with the umbrella header `<Linea.hpp>`.
+</Note>
+
+<Tip>
+  Because `display()` returns a reference to the same `std::ostream`, you can chain output naturally:
+
+  ```cpp
+  Linea::IO::display(std::cout << "A:\n", A) << "\n";
+  ```
+</Tip>
+
+---
+
+## `MatrixFormat`
+
+`MatrixFormat` is a plain struct with value-initialised defaults. Construct one, set whichever fields you need, and pass it as the third argument to `display()`.
+
+```cpp
+struct MatrixFormat {
+    std::size_t precision     = 2;
+    std::size_t width         = 2;
+    bool        scientific    = false;
+    bool        show_dimensions = false;
+};
+```
+
+<ParamField body="precision" type="size_t" default="2">
+  Number of digits printed after the decimal point for each element. Applies to both fixed and scientific notation.
+</ParamField>
+
+<ParamField body="width" type="size_t" default="2">
+  Minimum field width reserved per element via `std::setw`. Elements narrower than this value are right-padded with spaces, keeping columns visually aligned.
+</ParamField>
+
+<ParamField body="scientific" type="bool" default="false">
+  When `true`, elements are formatted with `std::scientific` (e.g. `1.500e+00`). When `false`, `std::fixed` is used instead (e.g. `1.50`).
+</ParamField>
+
+<ParamField body="show_dimensions" type="bool" default="false">
+  When `true`, a header line `"Matrix dimensions: RxC"` is printed to the stream before the matrix rows.
+</ParamField>
+
+### Matrix output format
+
+Each row is enclosed in square brackets; elements within a row are separated by `, `. For a 2×3 matrix with default formatting:
+
+```
+[  1.00,   2.00,   3.00]
+[  4.00,   5.00,   6.00]
+```
+
+With `show_dimensions = true`:
+
+```
+Matrix dimensions: 2x3
+[  1.00,   2.00,   3.00]
+[  4.00,   5.00,   6.00]
+```
+
+---
+
+## `VectorFormat`
+
+`VectorFormat` mirrors `MatrixFormat` but replaces `show_dimensions` with `horizontal`, which controls whether the vector is rendered as a single row or a column of single-element rows.
+
+```cpp
+struct VectorFormat {
+    std::size_t precision  = 2;
+    std::size_t width      = 2;
+    bool        scientific = false;
+    bool        horizontal = true;
+};
+```
+
+<ParamField body="precision" type="size_t" default="2">
+  Number of digits after the decimal point for each element.
+</ParamField>
+
+<ParamField body="width" type="size_t" default="2">
+  Minimum field width per element (right-aligned via `std::setw`).
+</ParamField>
+
+<ParamField body="scientific" type="bool" default="false">
+  Enables `std::scientific` notation when `true`; uses `std::fixed` otherwise.
+</ParamField>
+
+<ParamField body="horizontal" type="bool" default="true">
+  Controls layout direction.
+  - **`true`** — all elements on a single line: `[  1.00,   2.00,   3.00]`
+  - **`false`** — each element on its own line:
+    ```
+    [  1.00]
+    [  2.00]
+    [  3.00]
+    ```
+</ParamField>
+
+---
+
+## Code Examples
+
+<Tabs>
+  <Tab title="Default Formatting">
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+
+    Linea::Matrix<double> M{{1.5, 2.7, 3.1}, {4.2, 5.8, 6.9}};
+    Linea::Vector<double> v{1.0, 2.0, 3.0};
+
+    // Default formatting — precision 2, width 2, fixed, horizontal
+    Linea::IO::display(std::cout, M);
+    Linea::IO::display(std::cout, v);
+    ```
+
+    Output:
+
+    ```
+    [  1.50,   2.70,   3.10]
+    [  4.20,   5.80,   6.90]
+    [  1.00,   2.00,   3.00]
+    ```
+  </Tab>
+
+  <Tab title="Custom Matrix Format">
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+
+    Linea::Matrix<double> M{{1.5, 2.7, 3.1}, {4.2, 5.8, 6.9}};
+
+    // Higher precision, wider fields, and dimension header
+    Linea::IO::MatrixFormat mfmt;
+    mfmt.precision       = 4;
+    mfmt.width           = 10;
+    mfmt.show_dimensions = true;
+
+    Linea::IO::display(std::cout, M, mfmt);
+    ```
+
+    Output:
+
+    ```
+    Matrix dimensions: 2x3
+    [    1.5000,     2.7000,     3.1000]
+    [    4.2000,     5.8000,     6.9000]
+    ```
+  </Tab>
+
+  <Tab title="Scientific Notation">
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+
+    Linea::Matrix<double> M{{1.5, 2.7, 3.1}, {4.2, 5.8, 6.9}};
+
+    Linea::IO::MatrixFormat sci_fmt;
+    sci_fmt.scientific = true;
+    sci_fmt.precision  = 3;
+
+    Linea::IO::display(std::cout, M, sci_fmt);
+    ```
+
+    Output:
+
+    ```
+    [  1.500e+00,   2.700e+00,   3.100e+00]
+    [  4.200e+00,   5.800e+00,   6.900e+00]
+    ```
+  </Tab>
+
+  <Tab title="Vertical Vector">
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+
+    Linea::Vector<double> v{1.0, 2.0, 3.0};
+
+    Linea::IO::VectorFormat vfmt;
+    vfmt.horizontal = false;
+    vfmt.precision  = 3;
+
+    Linea::IO::display(std::cout, v, vfmt);
+    ```
+
+    Output:
+
+    ```
+    [  1.000]
+    [  2.000]
+    [  3.000]
+    ```
+  </Tab>
+
+  <Tab title="Chaining">
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+
+    Linea::Matrix<double> M{{1.5, 2.7, 3.1}, {4.2, 5.8, 6.9}};
+    Linea::Vector<double> v{1.0, 2.0, 3.0};
+
+    // The return value is std::ostream&, so calls chain cleanly
+    Linea::IO::display(std::cout << "Result vector:\n", v);
+
+    // Append a trailing newline after the matrix
+    Linea::IO::display(std::cout << "Result matrix:\n", M) << "\n";
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Using `display()` with Decomposition Outputs
+
+`display()` works with any `Matrix<F>` or `Vector<F>`, including factor matrices produced by decompositions. The snippet below prints the `L` and `U` factors from an LU decomposition:
+
+```cpp
+#include <Linea.hpp>
+#include <iostream>
+
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+
+Linea::Decompositions::LU<double> lu(A);
+
+Linea::IO::display(std::cout << "L =\n", lu.L());
+Linea::IO::display(std::cout << "U =\n", lu.U());
+```
+
+---
+
+## Format Options at a Glance
+
+<CardGroup cols={2}>
+  <Card title="MatrixFormat" icon="table">
+    | Field | Type | Default |
+    |---|---|---|
+    | `precision` | `size_t` | `2` |
+    | `width` | `size_t` | `2` |
+    | `scientific` | `bool` | `false` |
+    | `show_dimensions` | `bool` | `false` |
+  </Card>
+  <Card title="VectorFormat" icon="list">
+    | Field | Type | Default |
+    |---|---|---|
+    | `precision` | `size_t` | `2` |
+    | `width` | `size_t` | `2` |
+    | `scientific` | `bool` | `false` |
+    | `horizontal` | `bool` | `true` |
+  </Card>
+</CardGroup>
+
+<Note>
+  Stream flags and precision are saved with `os.flags()` and `os.precision()` before any formatting is applied, and are unconditionally restored before `display()` returns. Calling `display()` has no permanent side effects on the stream state.
+</Note>

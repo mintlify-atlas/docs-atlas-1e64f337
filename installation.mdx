@@ -1,0 +1,175 @@
+---
+title: "How to Install the Linea Library in Your C++ Project"
+sidebarTitle: "Installation"
+description: "Add the Linea header-only library to your C++ project via CMake FetchContent, a local subdirectory, or by manually copying the include directory."
+---
+
+Linea is a header-only library. There is no compilation step, no `.a` or `.so` to link, and no separate build to run. Integration amounts to making the `include/` directory visible to your compiler and enabling C++20 mode — everything else is taken care of by the headers themselves.
+
+## Method 1: CMake (Recommended)
+
+CMake is the recommended integration path. Linea ships a first-class `CMakeLists.txt` that defines an `INTERFACE` library target named `Linea` and automatically propagates the C++20 requirement to any target that links against it.
+
+### Option A — Local subdirectory (clone once, use anywhere)
+
+<Steps>
+  <Step title="Clone the repository">
+    Clone Linea into a directory inside your project tree, for example `third_party/Linea`:
+
+    ```bash
+    git clone https://github.com/A0X0P/Linea.git third_party/Linea
+    ```
+  </Step>
+
+  <Step title="Add it as a subdirectory in your CMakeLists.txt">
+    ```cmake
+    cmake_minimum_required(VERSION 3.16)
+    project(MyProject LANGUAGES CXX)
+
+    # Pull in Linea — defines the INTERFACE target "Linea"
+    add_subdirectory(third_party/Linea)
+
+    add_executable(my_app main.cpp)
+    target_link_libraries(my_app PRIVATE Linea)
+    ```
+
+    Because Linea's own `CMakeLists.txt` calls:
+    ```cmake
+    target_compile_features(Linea INTERFACE cxx_std_20)
+    ```
+    …your target inherits the C++20 requirement automatically. You do not need to set it again.
+  </Step>
+
+  <Step title="Build as usual">
+    ```bash
+    cmake -B build
+    cmake --build build
+    ```
+  </Step>
+</Steps>
+
+### Option B — FetchContent (no manual clone required)
+
+<Steps>
+  <Step title="Declare Linea in your CMakeLists.txt">
+    ```cmake
+    cmake_minimum_required(VERSION 3.16)
+    project(MyProject LANGUAGES CXX)
+
+    include(FetchContent)
+
+    FetchContent_Declare(
+        Linea
+        GIT_REPOSITORY https://github.com/A0X0P/Linea.git
+        GIT_TAG        main
+    )
+    FetchContent_MakeAvailable(Linea)
+
+    add_executable(my_app main.cpp)
+    target_link_libraries(my_app PRIVATE Linea)
+    ```
+  </Step>
+
+  <Step title="Configure and build">
+    CMake fetches and configures Linea automatically during the configure step:
+
+    ```bash
+    cmake -B build
+    cmake --build build
+    ```
+  </Step>
+</Steps>
+
+<Note>
+  The CMake target name is exactly `Linea` (capital L). Using `target_link_libraries(your_target PRIVATE Linea)` is all that is required — no manual `target_include_directories` or `target_compile_features` calls are needed on your side.
+</Note>
+
+### MinGW note
+
+If you are building with MinGW on Windows, Linea's `CMakeLists.txt` appends `-mconsole` to the linker flags for executable targets:
+
+```cmake
+if (MINGW)
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -mconsole")
+endif()
+```
+
+This flag is set automatically when you use the provided CMakeLists and does not require any action on your part.
+
+---
+
+## Method 2: Manual Include
+
+If you are not using CMake, you can integrate Linea by copying its headers directly:
+
+<Steps>
+  <Step title="Copy the include directory">
+    Copy `include/` from the Linea repository root into your project:
+
+    ```
+    your_project/
+    ├── src/
+    │   └── main.cpp
+    └── include/          ← copied from Linea
+        ├── Linea.hpp
+        └── Linea/
+            ├── Core/
+            ├── Vector/
+            ├── Matrix/
+            ├── Decompositions/
+            └── IO/
+    ```
+  </Step>
+
+  <Step title="Add the include path to your compiler invocation">
+    **GCC / Clang:**
+    ```bash
+    g++ -std=c++20 -Iinclude main.cpp -o my_app
+    ```
+
+    **MSVC:**
+    ```bat
+    cl /std:c++20 /I include main.cpp
+    ```
+  </Step>
+</Steps>
+
+---
+
+## Including the Library
+
+### Umbrella header — include everything at once
+
+```cpp
+#include <Linea.hpp>
+```
+
+This single include makes every Linea class and function available: vectors, matrices, all four decompositions, and the I/O helpers.
+
+### Granular includes — only what you need
+
+```cpp
+#include <Linea/Vector/Vector.hpp>
+#include <Linea/Matrix/Matrix.hpp>
+#include <Linea/Decompositions/LU.hpp>
+#include <Linea/Decompositions/Cholesky.hpp>
+#include <Linea/Decompositions/HouseholderQR.hpp>
+#include <Linea/Decompositions/SVD.hpp>
+#include <Linea/IO/StreamOperations.hpp>
+```
+
+<Tip>
+  In large projects with many translation units, prefer granular includes. The umbrella header pulls in all four decomposition implementations, all math helpers, and the I/O layer — which can meaningfully increase per-translation-unit parse time.
+</Tip>
+
+---
+
+## Compiler Flags Reference
+
+| Compiler | Required flag |
+|---|---|
+| GCC | `-std=c++20` |
+| Clang | `-std=c++20` |
+| MSVC | `/std:c++20` |
+
+Linea uses C++20 concepts (`NumericType`, `RealType`, `IntegralType`) throughout its template parameters. Attempting to compile without C++20 mode enabled will produce concept-related errors from the headers.

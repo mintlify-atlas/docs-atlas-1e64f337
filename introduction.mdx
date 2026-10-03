@@ -1,0 +1,73 @@
+---
+title: "Linea: Header-Only C++20 Linear Algebra for Modern C++"
+sidebarTitle: "Introduction"
+description: "Linea is a header-only C++20 linear algebra engine with compile-time type safety, dense vectors and matrices, and four numerical decompositions."
+---
+
+Linea is a modern, header-only linear algebra engine written in C++20. It is built around a single design philosophy: give you the full power of high-performance numerical computing — dense vectors, matrices, and complete matrix decompositions — without a build step, without linking against a compiled binary, and without sacrificing type safety. Every public API is constrained by C++20 concepts so that scalar type errors become compile-time failures rather than silent numerical bugs at runtime.
+
+## What Is Linea?
+
+Linea is distributed as a set of headers under a single `include/` directory. Dropping that directory into your project and writing `#include <Linea.hpp>` is all it takes to unlock the full library. There are no shared libraries, no object archives, and no external dependencies beyond a compliant C++20 standard library.
+
+The engine is organized into five self-contained modules, each independently includable:
+
+| Module | Namespace | Contents |
+|---|---|---|
+| **Core** | `Linea::` | Concepts (`NumericType`, `RealType`, `IntegralType`), platform macros, scalar promotion traits, utility helpers |
+| **Vector** | `Linea::` | `Vector<V>` (dynamic dense vector), `Vector3D<T>` (fixed 3-component vector), element-wise math, algebraic operations |
+| **Matrix** | `Linea::` | `Matrix<M>` (row-major dense matrix), element-wise math, algebraic operations, structural utilities |
+| **Decompositions** | `Linea::Decompositions::` | LU (with partial pivoting), Cholesky, Householder QR, SVD |
+| **I/O** | `Linea::IO::` | `display()` stream helpers for vectors and matrices |
+
+## Design Goals
+
+Linea's architecture is guided by four principles, all sourced directly from the codebase:
+
+- **Header-only implementation** — the entire engine lives in `include/`. There is nothing to compile separately.
+- **Compile-time safety via concepts** — every container template (`Vector<V>`, `Matrix<M>`) requires its scalar type to satisfy `NumericType`, which constrains to arithmetic integers and floating-point types while explicitly excluding `bool`, `char`, and all character-encoding types.
+- **Zero-overhead abstractions** — contiguous `std::vector<T>` storage, no hidden heap allocations beyond the container itself, raw pointer access via `.raw()`, and RESTRICT-annotated inner loops for SIMD-friendly code generation.
+- **High-performance numerical kernels** — O(n³/2 · 2/3) LU factorization with partial pivoting, O(n) norm and dot-product kernels, thread-local RNG for lock-free random matrix and vector construction.
+
+## Compiler Requirements
+
+Linea requires a C++20-compliant compiler. The CMake build system enforces this via `target_compile_features(Linea INTERFACE cxx_std_20)`.
+
+| Compiler | Minimum Version |
+|---|---|
+| GCC | 10+ |
+| Clang | 12+ |
+| MSVC | 19.29+ (VS 2019 16.10) |
+
+No third-party libraries are required. The only dependency is the C++ standard library.
+
+## Namespace Layout
+
+All types and free functions live under the `Linea::` namespace. Decomposition classes are further nested under `Linea::Decompositions::`, and stream helpers under `Linea::IO::`:
+
+```cpp
+Linea::Vector<double>              // dense vector
+Linea::Matrix<double>              // dense matrix
+Linea::Decompositions::LU<double>  // LU factorization
+Linea::Decompositions::Cholesky<double>
+Linea::Decompositions::HouseholderQR<double>
+Linea::Decompositions::SVD<double>
+Linea::IO::display(std::cout, v)   // formatted output
+```
+
+## Feature Highlights
+
+<CardGroup cols={2}>
+  <Card title="Dense Vectors" icon="arrow-right" href="/vectors/vector">
+    `Vector<V>` supports dot products, L1/L2/L∞/Lp norms, outer products, concatenation, segmentation, and element-wise math — all constrained to `NumericType` scalars at compile time.
+  </Card>
+  <Card title="Dense Matrices" icon="table" href="/matrices/matrix">
+    `Matrix<M>` is a row-major contiguous container with arithmetic operators, transpose, inverse, determinant, row/column access, and statistical reductions like `sum()`, `mean()`, `min()`, and `max()`.
+  </Card>
+  <Card title="LU Decomposition" icon="calculator" href="/decompositions/lu">
+    Partial-pivoting LU factorization computes **P A = L U** in O(2n³/3) time and exposes `rank()`, `swap_count()`, and explicit L, U, P factor extraction.
+  </Card>
+  <Card title="Stream I/O" icon="terminal" href="/io/stream-output">
+    `Linea::IO::display()` renders vectors and matrices to any `std::ostream` with configurable precision, width, scientific notation, and dimension labels — without overriding `operator<<`.
+  </Card>
+</CardGroup>

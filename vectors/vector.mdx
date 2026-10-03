@@ -1,0 +1,275 @@
+---
+title: "Vector<V>: Dense Dynamic Vector for Linear Algebra"
+sidebarTitle: "Vector"
+description: "Complete reference for Linea::Vector<V> — construction, element access, iteration, and the raw pointer interface for performance-critical code."
+---
+
+`Linea::Vector<V>` is the primary dense vector type in Linea. It models a finite-dimensional vector **v ∈ 𝔽ⁿ** over an arithmetic scalar field, backed by a contiguous `std::vector<V>` with no hidden allocations. The scalar type `V` must satisfy the `NumericType` concept — meaning it can be any arithmetic integer type (excluding `bool` and character types) or any floating-point type. Every method that touches elements uses RESTRICT-qualified raw-pointer loops, making the generated code SIMD-friendly without any additional effort on your part.
+
+## Class Template
+
+```cpp
+namespace Linea {
+    template <NumericType V>
+    class Vector;
+}
+```
+
+`V` must satisfy `NumericType`, which is defined as `IntegralType<V> || RealType<V>`. Certain operations — norms, angle, distance, and all math functions — additionally require `RealType<V>` (i.e., a floating-point type).
+
+---
+
+## Constructors
+
+### Fill constructor
+
+```cpp
+Vector(std::size_t size, V value);
+```
+
+Constructs a vector of `size` elements, each initialized to `value`.
+
+```cpp
+Linea::Vector<double> v(4, 3.14); // [3.14, 3.14, 3.14, 3.14]
+Linea::Vector<int>    u(3, 0);    // [0, 0, 0]
+```
+
+---
+
+### Zero constructor
+
+```cpp
+explicit Vector(std::size_t size);
+```
+
+Constructs a zero-initialized vector of `size` elements (`V{0}` for every index).
+
+```cpp
+Linea::Vector<float> v(5); // [0.0f, 0.0f, 0.0f, 0.0f, 0.0f]
+```
+
+---
+
+### Initializer-list constructor
+
+```cpp
+Vector(std::initializer_list<V> list);
+```
+
+Constructs a vector from a brace-enclosed element list. This is the most concise form for small, known-at-source vectors.
+
+```cpp
+Linea::Vector<double> v{1.0, 2.0, 3.0, 4.0};
+```
+
+---
+
+### `std::vector` constructor
+
+```cpp
+explicit Vector(const std::vector<V>& v);
+```
+
+Constructs from an existing `std::vector<V>`. Marked `explicit` to prevent accidental implicit conversions from standard containers.
+
+```cpp
+std::vector<double> src = {10.0, 20.0, 30.0};
+Linea::Vector<double> v(src);
+```
+
+---
+
+### Random constructor
+
+```cpp
+static Vector<V> random(std::size_t size, V min_range, V max_range);
+```
+
+Returns a vector of `size` elements drawn from a uniform distribution over `[min_range, max_range]`. The bounds are clamped internally so passing them in either order is safe.
+
+```cpp
+auto v = Linea::Vector<double>::random(8, -1.0, 1.0);
+auto u = Linea::Vector<int>::random(5, 1, 100);
+```
+
+<Note>
+`random()` uses a `static thread_local std::mt19937` engine seeded from `std::random_device`. This means the RNG is per-thread and lock-free — multiple threads can call `random()` simultaneously without data races. The distribution is selected at compile time: `std::uniform_int_distribution<V>` for `IntegralType`, and `std::uniform_real_distribution<V>` for `RealType`.
+</Note>
+
+---
+
+### Type-casting constructor
+
+```cpp
+template <NumericType U>
+explicit Vector(const Vector<U>& vector);
+```
+
+Constructs a new `Vector<V>` by element-wise `static_cast<V>` from a source `Vector<U>`. The `explicit` keyword prevents silent precision loss.
+
+```cpp
+Linea::Vector<double> src{1.5, 2.7, 3.9};
+Linea::Vector<int> truncated(src); // [1, 2, 3]
+```
+
+---
+
+### Vector3D conversion constructor
+
+```cpp
+Vector(const Vector3D<V>& v);
+```
+
+Constructs a 3-element `Vector<V>` from a `Vector3D<V>` by copying x, y, z. O(1) — copies exactly three values.
+
+```cpp
+Linea::Vector3D<double> v3d{1.0, 2.0, 3.0};
+Linea::Vector<double> v(v3d); // [1.0, 2.0, 3.0]
+```
+
+---
+
+## Element Access
+
+<Tabs>
+  <Tab title="Subscript operator">
+    ```cpp
+    V&       operator[](std::size_t index);
+    const V& operator[](std::size_t index) const;
+    ```
+
+    Bounds-checked random access. Both the mutable and const overloads throw `std::invalid_argument` if `index >= size()`.
+
+    ```cpp
+    Linea::Vector<double> v{10.0, 20.0, 30.0};
+    double x = v[1];  // 20.0
+    v[0] = 99.0;      // modifies in place
+
+    // throws std::invalid_argument:
+    // v[10];
+    ```
+  </Tab>
+  <Tab title="Size">
+    ```cpp
+    std::size_t size() const noexcept;
+    ```
+
+    Returns the number of elements. Never throws.
+
+    ```cpp
+    Linea::Vector<int> v{1, 2, 3, 4};
+    std::size_t n = v.size(); // 4
+    ```
+  </Tab>
+  <Tab title="Raw pointer">
+    ```cpp
+    [[nodiscard]] inline V*       raw() noexcept;
+    [[nodiscard]] inline const V* raw() const noexcept;
+    ```
+
+    Returns a pointer to the first element of the contiguous backing store. Use in performance-critical kernels that need to pass the buffer to external APIs or write SIMD-annotated loops.
+
+    ```cpp
+    Linea::Vector<double> v{1.0, 2.0, 3.0};
+    double* ptr = v.raw();
+    ptr[1] = 42.0; // direct write, no bounds check
+    ```
+  </Tab>
+  <Tab title="STL reference">
+    ```cpp
+    const std::vector<V>& data_ref() const& noexcept;
+    ```
+
+    Returns a const lvalue reference to the underlying `std::vector<V>`. Useful for passing the vector to any STL algorithm or container that expects a `std::vector`.
+
+    ```cpp
+    Linea::Vector<double> v{1.0, 2.0, 3.0};
+    const auto& inner = v.data_ref();
+    // inner is a const std::vector<double>&
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## Equality
+
+```cpp
+bool operator==(const Vector<V>& other) const noexcept;
+bool operator!=(const Vector<V>& other) const noexcept;
+```
+
+Returns `false` immediately if the two vectors differ in size. For `IntegralType<V>`, element equality is checked with `!=`. For `RealType<V>`, each pair of elements is compared with `floating_point_equality()`, which accounts for floating-point rounding.
+
+```cpp
+Linea::Vector<int>    a{1, 2, 3};
+Linea::Vector<int>    b{1, 2, 3};
+Linea::Vector<int>    c{1, 2, 4};
+
+bool eq1 = (a == b); // true
+bool eq2 = (a == c); // false
+bool ne  = (a != c); // true
+```
+
+---
+
+## Iterator Interface
+
+`Vector<V>` exposes the full set of iterators from its underlying `std::vector<V>`, all with random-access guarantees.
+
+<Accordion title="Forward iterators">
+  ```cpp
+  iterator       begin()  noexcept;
+  const_iterator begin()  const noexcept;
+  const_iterator cbegin() const noexcept;
+
+  iterator       end()  noexcept;
+  const_iterator end()  const noexcept;
+  const_iterator cend() const noexcept;
+  ```
+
+  ```cpp
+  Linea::Vector<double> v{1.0, 2.0, 3.0};
+
+  for (auto& x : v) {
+      x *= 2.0; // doubles every element in place
+  }
+
+  // const iteration:
+  for (auto it = v.cbegin(); it != v.cend(); ++it) {
+      // read-only access
+  }
+  ```
+</Accordion>
+
+<Accordion title="Reverse iterators">
+  ```cpp
+  reverse_iterator       rbegin()  noexcept;
+  const_reverse_iterator rbegin()  const noexcept;
+  const_reverse_iterator crbegin() const noexcept;
+
+  reverse_iterator       rend()  noexcept;
+  const_reverse_iterator rend()  const noexcept;
+  const_reverse_iterator crend() const noexcept;
+  ```
+
+  ```cpp
+  Linea::Vector<int> v{1, 2, 3, 4, 5};
+
+  // iterate in reverse:
+  for (auto it = v.crbegin(); it != v.crend(); ++it) {
+      // visits 5, 4, 3, 2, 1
+  }
+  ```
+</Accordion>
+
+All iterator types are aliases into `std::vector<V>`'s iterator family:
+
+| Alias | Underlying type |
+|---|---|
+| `iterator` | `std::vector<V>::iterator` |
+| `const_iterator` | `std::vector<V>::const_iterator` |
+| `reverse_iterator` | `std::vector<V>::reverse_iterator` |
+| `const_reverse_iterator` | `std::vector<V>::const_reverse_iterator` |
+
+Because these are random-access iterators, all STL algorithms — `std::sort`, `std::transform`, `std::accumulate`, and so on — work directly on `Vector<V>`.

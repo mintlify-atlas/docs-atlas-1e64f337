@@ -1,0 +1,446 @@
+---
+title: "Matrix Utilities: Transforms, Algebra, Norms, and Solvers"
+sidebarTitle: "Utilities"
+description: "Transpose, reshape, block extraction, determinant, inverse, rank, matrix norms, and linear system solve for Linea::Matrix<M>."
+---
+
+`MatrixUtilities.hpp` extends `Matrix<M>` with a broad set of structural and numerical methods: shape inspection, in-place-free transformations, classical linear algebra (determinant, inverse, cofactor), LU-based linear solvers, and four categories of matrix norm. All declarations are part of the `Matrix<M>` class; implementations are provided in this header and depend on `Linea::Decompositions::LU` and `Linea::Decompositions::SVD`. Operations that require division or decomposition are constrained to `RealType<M>` via C++20 `requires` clauses.
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+
+double det   = A.determinant();          // -6.0
+auto   inv   = A.inverse();              // 2×2 inverse of A
+auto   At    = A.transpose();            // 2×2 transpose
+
+Linea::Vector<double> b{10, 12};
+Linea::Vector<double> x = A.solve(b);   // solution to Ax = b
+```
+
+---
+
+## Structural Inspection
+
+These methods query matrix properties without modifying or copying data.
+
+| Method | Return | Description |
+|---|---|---|
+| `shape() const` | `void` | Prints `(rows, cols)` to `stdout` |
+| `size() const` | `size_t` | Returns `nrows() * ncols()` |
+| `empty() const noexcept` | `bool` | True if underlying storage holds no elements |
+| `square() const noexcept` | `bool` | True if `nrows() == ncols()` |
+| `symmetric() const noexcept` | `bool` | True if square and `a_{ij} == a_{ji}` for all i, j |
+| `singular() const noexcept` | `bool` | True if `rank() < nrows()` — uses LU internally |
+
+<Note>
+  `symmetric()` performs **exact** element comparison (`!=`). For
+  floating-point matrices, accumulated rounding errors may cause near-symmetric
+  matrices to return `false`. If you need a tolerance-based check, compare
+  the matrix to its transpose using `operator==`, which uses
+  `floating_point_equality()` internally.
+</Note>
+
+---
+
+## Structural Transformations
+
+### `transpose()`
+
+```cpp
+Matrix<M> transpose() const;
+```
+
+Returns a new matrix `Aᵀ` where `(Aᵀ)_{ij} = A_{ji}`. For an `m×n` input the result is `n×m`.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1, 2, 3}, {4, 5, 6}};
+auto At = A.transpose(); // 3×2: [[1,4],[2,5],[3,6]]
+```
+
+---
+
+### `reshape(size_t nrow, size_t ncol)`
+
+```cpp
+Matrix<M> reshape(std::size_t nrow, std::size_t ncol) const;
+```
+
+Returns a new matrix with shape `nrow × ncol` holding the same elements in the same row-major order. The total element count must be preserved.
+
+**Throws:** `std::invalid_argument` if `nrow * ncol != size()`.  
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<int> A{{1, 2, 3, 4, 5, 6}};  // 1×6
+auto B = A.reshape(2, 3);                    // 2×3: [[1,2,3],[4,5,6]]
+```
+
+---
+
+### `flatten()`
+
+```cpp
+Matrix<M> flatten() const;
+```
+
+Returns a `1 × size()` row matrix containing all elements in row-major order. Equivalent to `reshape(1, size())`.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<int> A{{1, 2}, {3, 4}};
+auto F = A.flatten(); // 1×4: [[1, 2, 3, 4]]
+```
+
+---
+
+### `subMatrix(size_t row_idx, size_t col_idx)`
+
+```cpp
+Matrix<M> subMatrix(std::size_t row_idx, std::size_t col_idx) const;
+```
+
+Returns an `(m−1) × (n−1)` matrix formed by removing row `row_idx` and column `col_idx`. Used internally by `minor()` and `cofactor()`.
+
+**Throws:** `std::out_of_range` if either index is out of bounds.  
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1, 2, 3}, {4, 5, 6}, {7, 8, 9}};
+auto S = A.subMatrix(1, 1); // removes row 1 and col 1
+// S = [[1,3],[7,9]]
+```
+
+---
+
+### `block(size_t row, size_t col, size_t nrows, size_t ncols)`
+
+```cpp
+Matrix<M> block(std::size_t row, std::size_t col,
+                std::size_t nrows, std::size_t ncols) const;
+```
+
+Extracts the rectangular subblock `A[row : row+nrows, col : col+ncols]` as a new matrix.
+
+<ParamField path="row" type="size_t" required>Starting row index (inclusive).</ParamField>
+<ParamField path="col" type="size_t" required>Starting column index (inclusive).</ParamField>
+<ParamField path="nrows" type="size_t" required>Number of rows to extract.</ParamField>
+<ParamField path="ncols" type="size_t" required>Number of columns to extract.</ParamField>
+
+**Throws:** `std::out_of_range` if the block extends beyond matrix bounds.  
+**Complexity:** O(nrows · ncols)
+
+```cpp
+Linea::Matrix<double> A{{1,2,3,4},
+                         {5,6,7,8},
+                         {9,10,11,12}};
+auto B = A.block(0, 1, 2, 2); // 2×2 block starting at (0,1)
+// B = [[2,3],[6,7]]
+```
+
+---
+
+## Scalar Invariants
+
+### `trace()`
+
+```cpp
+M trace() const;
+```
+
+Returns the sum of the main diagonal elements: `tr(A) = Σ_i a_{ii}`.
+
+**Throws:** `std::invalid_argument` if the matrix is not square.  
+**Complexity:** O(n)
+
+---
+
+### `diagonal(Diagonal type = Diagonal::Major)`
+
+```cpp
+Vector<M> diagonal(Diagonal type = Diagonal::Major) const;
+```
+
+Extracts the major or minor diagonal as a `Vector<M>`.
+
+- `Diagonal::Major` — elements where `i == j` (top-left to bottom-right)
+- `Diagonal::Minor` — elements where `i + j == n − 1` (top-right to bottom-left)
+
+**Throws:** `std::invalid_argument` if the matrix is not square.  
+**Complexity:** O(n)
+
+```cpp
+Linea::Matrix<double> A{{1, 2, 3},
+                         {4, 5, 6},
+                         {7, 8, 9}};
+auto major_d = A.diagonal();                         // [1, 5, 9]
+auto minor_d = A.diagonal(Linea::Diagonal::Minor);   // [3, 5, 7]
+```
+
+---
+
+### `determinant()` — `requires RealType<M>`
+
+```cpp
+M determinant() const
+    requires RealType<M>;
+```
+
+Computes the determinant via LU factorization (`PA = LU`):
+
+```text
+det(A) = (-1)^{swap_count} * prod(U_{ii})
+```
+
+Returns `0` immediately if LU detects a rank-deficient pivot structure.
+
+**Throws:** `std::invalid_argument` if the matrix is not square.  
+**Complexity:** O(n³) — dominated by LU factorization.
+
+```cpp
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+double det = A.determinant(); // 4*3 - 3*6 = -6.0
+```
+
+---
+
+### `rank()` — `requires RealType<M>`
+
+```cpp
+std::size_t rank() const
+    requires RealType<M>;
+```
+
+Returns the numerical rank of the matrix, counted as the number of non-zero pivots in the LU factorization.
+
+**Complexity:** O(m·n·min(m,n)) — dominated by LU factorization.
+
+<Tip>
+  Call `rank()` before `inverse()` to check for singularity without the
+  overhead of a thrown exception. If `rank() < nrows()`, the matrix is singular
+  and `inverse()` will throw `std::runtime_error`.
+</Tip>
+
+---
+
+## Classical Algebraic Constructions
+
+### `minor(size_t i, size_t j)` → `M`
+
+```cpp
+M minor(std::size_t i, std::size_t j) const;
+```
+
+Returns the scalar minor `M_{ij}` — the determinant of the `(n−1)×(n−1)` submatrix obtained by removing row `i` and column `j`.
+
+**Throws:** `std::invalid_argument` if the matrix is not square.
+
+---
+
+### `cofactor(size_t i, size_t j)` → `M`
+
+```cpp
+M cofactor(std::size_t i, std::size_t j) const;
+```
+
+Returns the signed minor: `C_{ij} = (−1)^{i+j} · M_{ij}`.
+
+---
+
+### `cofactor_matrix()` → `Matrix<M>`
+
+```cpp
+Matrix<M> cofactor_matrix() const;
+```
+
+Constructs the full `n×n` matrix of cofactors `[C_{ij}]`.
+
+**Throws:** `std::invalid_argument` if the matrix is not square.
+
+---
+
+### `adjoint()` → `Matrix<M>`
+
+```cpp
+Matrix<M> adjoint() const;
+```
+
+Returns the classical adjugate (adjoint) matrix: `adj(A) = cofactor_matrix()ᵀ`.
+
+<Warning>
+  `minor()`, `cofactor()`, `cofactor_matrix()`, and `adjoint()` all rely on
+  recursive determinant computation via `subMatrix().determinant()`. This is
+  O(n!) in the worst case and becomes impractical beyond matrices of size ~7×7.
+  For larger matrices, use LU-based methods — `determinant()`, `inverse()`, and
+  `rank()` — which run in O(n³).
+</Warning>
+
+---
+
+### `inverse()` — `requires RealType<M>`
+
+```cpp
+Matrix<M> inverse() const
+    requires RealType<M>;
+```
+
+Computes `A⁻¹` by solving `A X = I` column-by-column via LU factorization with forward and backward substitution.
+
+**Throws:**
+- `std::invalid_argument` — matrix is not square
+- `std::runtime_error` — matrix is singular (detected via LU rank)
+
+**Complexity:** O(n³)
+
+```cpp
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+auto inv = A.inverse();
+// inv ≈ [[-0.5, 0.5], [1.0, -0.666...]]
+```
+
+---
+
+## Linear System Solvers
+
+### `solve(const Vector<M>& b)` — `requires RealType<M>`
+
+```cpp
+Vector<M> solve(const Vector<M>& b) const
+    requires RealType<M>;
+```
+
+Solves the linear system `Ax = b` using LU factorization with partial pivoting, followed by forward substitution (`Ly = Pb`) and backward substitution (`Ux = y`).
+
+<ParamField path="b" type="const Vector<M>&" required>
+  Right-hand side vector of length `nrows()`.
+</ParamField>
+
+**Complexity:** O(n³) for factorization + O(n²) for substitution.
+
+---
+
+### `solve(const Matrix<M>& B)` — `requires RealType<M>`
+
+```cpp
+Matrix<M> solve(const Matrix<M>& B) const
+    requires RealType<M>;
+```
+
+Solves `AX = B` where `B` has multiple right-hand side columns. Each column of `B` is solved independently using the same LU factorization, returning the solution matrix `X`.
+
+<ParamField path="B" type="const Matrix<M>&" required>
+  Right-hand side matrix. Must have `nrows()` rows.
+</ParamField>
+
+**Complexity:** O(n³) for factorization + O(n² · k) for k right-hand sides.
+
+```cpp
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+Linea::Vector<double> b{10, 12};
+Linea::Vector<double> x = A.solve(b);
+// Verify: A * x ≈ b
+```
+
+---
+
+## Matrix Norms
+
+### `norm()` — Frobenius norm
+
+```cpp
+double norm() const;
+```
+
+Computes the Frobenius norm: `‖A‖_F = √(Σ_{ij} a_{ij}²)`. Available for any `NumericType`.
+
+**Complexity:** O(m·n)
+
+---
+
+### `norm(MatrixNorm type, size_t max_iter = 100)` — dispatched norm
+
+```cpp
+double norm(MatrixNorm type, std::size_t max_iter = 100) const;
+```
+
+Dispatches to the appropriate norm implementation based on `type`:
+
+<Accordion title="MatrixNorm::Frobenius">
+
+Delegates to `norm()`. Computes `‖A‖_F = √(Σ a_{ij}²)`.
+
+**Complexity:** O(m·n)
+
+</Accordion>
+
+<Accordion title="MatrixNorm::One — max column sum">
+
+Computes the induced 1-norm (maximum absolute column sum):
+
+```text
+||A||_1 = max_j  sum_i |a_{ij}|
+```
+
+**Complexity:** O(m·n)
+
+</Accordion>
+
+<Accordion title="MatrixNorm::Infinity — max row sum">
+
+Computes the induced infinity norm (maximum absolute row sum):
+
+```text
+||A||_inf = max_i  sum_j |a_{ij}|
+```
+
+**Complexity:** O(m·n)
+
+</Accordion>
+
+<Accordion title="MatrixNorm::Spectral — largest singular value">
+
+Computes the spectral norm `‖A‖₂ = σ_max(A)`.
+
+**Strategy:**
+- Matrices where `min(m, n) > 64` — power iteration for up to `max_iter` iterations with convergence tolerance `√ε`.
+- Smaller matrices — exact SVD via `Decompositions::SVD<M>`.
+
+**Requires:** floating-point scalar type (enforced by `static_assert`).
+
+<ParamField path="max_iter" type="size_t">
+  Maximum number of power-iteration steps (default: 100). Only relevant for
+  matrices larger than 64 in either dimension.
+</ParamField>
+
+**Complexity:** O(m·n · max_iter) for large matrices; O(m·n·min(m,n)) for exact SVD.
+
+</Accordion>
+
+```cpp
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+
+double frob    = A.norm();                                        // Frobenius
+double one     = A.norm(Linea::MatrixNorm::One);                  // max col sum
+double inf     = A.norm(Linea::MatrixNorm::Infinity);             // max row sum
+double spectral = A.norm(Linea::MatrixNorm::Spectral);            // σ_max
+double spectral2 = A.norm(Linea::MatrixNorm::Spectral, 200);      // custom max_iter
+```
+
+---
+
+## Summary: LU-Based Methods
+
+The following methods all use `Linea::Decompositions::LU<M>` internally. Each constructs a fresh LU factorization — if you need multiple results from the same matrix, the decomposition is not shared automatically.
+
+| Method | Uses LU | `RealType` required | Notes |
+|---|---|---|---|
+| `determinant()` | ✓ | ✓ | O(n³) |
+| `rank()` | ✓ | ✓ | O(n³) |
+| `inverse()` | ✓ | ✓ | Throws on singular |
+| `solve(Vector)` | ✓ | ✓ | Forward + backward substitution |
+| `solve(Matrix)` | ✓ | ✓ | Solves each column independently |
+| `singular()` | ✓ (via `rank()`) | implied | Returns bool |

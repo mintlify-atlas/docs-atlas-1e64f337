@@ -1,0 +1,143 @@
+---
+title: "LU Decomposition with Partial Pivoting in Linea C++"
+sidebarTitle: "LU"
+description: "Linea::Decompositions::LU<T> factors any matrix as PA=LU with partial pivoting, exposing rank, swap count, determinant sign, and system solving."
+---
+
+LU decomposition factors a matrix **A** into a unit lower-triangular factor **L**, an upper-triangular factor **U**, and a permutation **P** such that **PA = LU**. Linea's `LU<T>` class performs this factorization in-place using partial pivoting — selecting the row with the largest absolute value at each step to improve numerical stability. The result is computed immediately on construction and stored in compact form, with explicit factors extracted on demand.
+
+## Namespace and Class
+
+```cpp
+namespace Linea::Decompositions
+
+template <RealType T> class LU
+```
+
+## Factorization
+
+For an m × n matrix **A**, the decomposition satisfies:
+
+```text
+P A = L U
+```
+
+where:
+- **P** is an m × m permutation matrix encoding row swaps
+- **L** is an m × min(m,n) unit lower-triangular matrix (diagonal entries are 1)
+- **U** is a min(m,n) × n upper-triangular matrix
+
+The decomposition runs in **O(2n³/3)** time and stores both **L** and **U** compactly in a single m × n buffer.
+
+## Algorithm
+
+Partial pivoting selects the row with the maximum absolute value `|a_{ik}|` in the current column at each elimination step. The chosen row is swapped into the pivot position before elimination proceeds. This reduces element growth and improves robustness for typical matrices, though pathological cases may still be challenging.
+
+## Constructor
+
+```cpp
+LU(const Matrix<T>& matrix, T epsilon = T{0})
+```
+
+Factorizes `matrix` immediately. The optional `epsilon` controls the pivot threshold used for rank detection:
+
+- If `epsilon == T{0}` (the default), the tolerance is computed automatically as:
+  ```
+  tol = std::numeric_limits<T>::epsilon() * max_element * max(m, n)
+  ```
+- Pass a custom positive value to tighten or relax rank detection.
+
+<Note>
+The auto-computed tolerance scales with the largest element in **A** and the matrix dimension `max(m, n)`, making it adaptive to the scale of the problem. For very small or very large matrices, a custom epsilon may give better rank estimates.
+</Note>
+
+## Accessors
+
+| Method | Return type | Description |
+|---|---|---|
+| `rank()` | `std::size_t` | Number of non-zero pivots (numerical rank) |
+| `swap_count()` | `std::size_t` | Number of row swaps performed during pivoting |
+| `permutation()` | `const Vector<size_t>&` | Permutation vector encoding **P** |
+| `info()` | `const LUInfo&` | Aggregate struct with all three fields above |
+| `L()` | `Matrix<T>` | Explicit unit lower-triangular factor, m × min(m,n) |
+| `U()` | `Matrix<T>` | Explicit upper-triangular factor, min(m,n) × n |
+| `P()` | `Matrix<T>` | Explicit permutation matrix, m × m (O(m²) to construct) |
+
+## The `LUInfo` Struct
+
+`info()` returns a reference to an `LUInfo` that bundles the decomposition metadata:
+
+```cpp
+struct LUInfo {
+    Vector<std::size_t> permutation_vector; // permutation_vector[i] = original row at position i
+    std::size_t         rank;               // numerical rank
+    std::size_t         swap_count;         // number of row interchanges
+};
+```
+
+The permutation matrix **P** is defined implicitly by this vector:
+```text
+P(i, permutation_vector[i]) = 1, zero elsewhere
+```
+
+The sign of the determinant follows from `swap_count`:
+```text
+det(A) = (-1)^swap_count · ∏ U(i, i)
+```
+
+## Basic Usage
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{4, 3}, {6, 3}};
+
+// Factorize immediately on construction
+Linea::Decompositions::LU<double> lu(A);
+
+// Extract factors
+auto L = lu.L(); // 2×2 unit lower triangular
+auto U = lu.U(); // 2×2 upper triangular
+auto P = lu.P(); // 2×2 permutation matrix
+
+// Rank and swap metadata
+std::size_t r     = lu.rank();
+std::size_t swaps = lu.swap_count();
+```
+
+## Custom Tolerance
+
+```cpp
+// Tighter threshold — treats near-zero pivots as zero sooner
+Linea::Decompositions::LU<double> lu_strict(A, 1e-10);
+
+// Access all metadata at once
+const auto& info = lu_strict.info();
+// info.permutation_vector, info.rank, info.swap_count
+```
+
+## Integration with Matrix Methods
+
+`LU<T>` is the engine behind several high-level `Matrix<T>` methods. You do not need to construct it manually when using these:
+
+<Accordion title="Matrix::determinant()">
+Internally creates an `LU` decomposition and computes:
+```text
+det(A) = (-1)^swap_count · ∏ U(i, i)
+```
+The sign comes from `swap_count` and the magnitude is the product of the diagonal of **U**.
+</Accordion>
+
+<Accordion title="Matrix::inverse()">
+Uses the LU factorization to solve **A X = I** column-by-column through the stored compact representation. Returns the n × n inverse matrix.
+</Accordion>
+
+<Accordion title="Matrix::solve()">
+Solves the linear system **Ax = b** by applying the permutation **P** to **b**, then performing forward substitution on **Ly = Pb** and back-substitution on **Ux = y**.
+</Accordion>
+
+## Stability
+
+<Warning>
+Partial pivoting greatly improves numerical robustness compared to unpivoted LU, but it does not guarantee stability for all pathological matrices. For problems where numerical conditioning is critical, consider using QR decomposition (`HouseholderQR<T>`) or SVD instead.
+</Warning>

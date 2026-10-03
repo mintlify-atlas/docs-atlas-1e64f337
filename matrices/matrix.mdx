@@ -1,0 +1,473 @@
+---
+title: "Matrix<M>: Dense Row-Major Matrix in Linea"
+sidebarTitle: "Matrix"
+description: "Complete reference for Linea::Matrix<M> — constructors, static factories, element access, row/column manipulation, concatenation, and statistical reductions."
+---
+
+`Linea::Matrix<M>` is the core dense matrix container in the Linea library. It models a finite-dimensional rectangular array over a numeric scalar field, stored contiguously in row-major order using a `std::vector<M>` as its backing buffer. The element at row `i`, column `j` maps to `data[i * ncols + j]`, giving cache-friendly traversal along rows and direct SIMD-compatible access through `raw()`. The scalar type `M` must satisfy the `NumericType` concept, which is the union of `IntegralType` and `RealType`; certain higher-level operations further narrow this to one of the two subconcepts.
+
+```cpp
+#include <Linea.hpp>
+
+// Construct a 3×4 zero-initialized matrix of doubles
+Linea::Matrix<double> A(3, 4);
+
+// Construct from a nested initializer list
+Linea::Matrix<double> B{{1.0, 2.0, 3.0},
+                         {4.0, 5.0, 6.0}};
+
+// Static factory: 4×4 identity
+auto I = Linea::Matrix<double>::identity(4);
+```
+
+---
+
+## Class Template
+
+```cpp
+namespace Linea {
+
+template <NumericType M>
+class Matrix;
+
+} // namespace Linea
+```
+
+**Header:** `<Linea/Matrix/Matrix.hpp>`  
+**Storage:** `std::vector<M> data` — contiguous, no padding, no hidden allocations  
+**Layout:** Row-major — `a_{ij} ↦ data[i * ncols + j]`
+
+---
+
+## Constructors
+
+<Accordion title="Matrix(size_t row, size_t col) — zero-initialized">
+
+Allocates an `row × col` matrix and value-initializes every element to `M{}` (zero for numeric types).
+
+```cpp
+template <NumericType M>
+Matrix(std::size_t row, std::size_t col);
+```
+
+<ParamField path="row" type="size_t" required>
+  Number of rows.
+</ParamField>
+<ParamField path="col" type="size_t" required>
+  Number of columns.
+</ParamField>
+
+**Complexity:** O(row · col)
+
+```cpp
+Linea::Matrix<int> Z(3, 3); // 3×3 integer matrix, all zeros
+```
+
+</Accordion>
+
+<Accordion title="Matrix(size_t row, size_t col, M value) — constant fill">
+
+Constructs an `row × col` matrix where every element is set to `value`: `A_{ij} = value`.
+
+```cpp
+template <NumericType M>
+Matrix(std::size_t row, std::size_t col, M value);
+```
+
+<ParamField path="row" type="size_t" required>
+  Number of rows.
+</ParamField>
+<ParamField path="col" type="size_t" required>
+  Number of columns.
+</ParamField>
+<ParamField path="value" type="M" required>
+  Constant fill value applied to every element.
+</ParamField>
+
+**Complexity:** O(row · col)
+
+```cpp
+Linea::Matrix<double> F(2, 4, 3.14); // every element is 3.14
+```
+
+</Accordion>
+
+<Accordion title="Matrix(initializer_list<initializer_list<M>>) — nested list">
+
+Constructs from a nested brace-initializer. Each inner list is one row. All rows must have the same length.
+
+```cpp
+template <NumericType M>
+explicit Matrix(std::initializer_list<std::initializer_list<M>> list);
+```
+
+<ParamField path="list" type="initializer_list<initializer_list<M>>" required>
+  Outer list is rows; inner lists are elements of each row.
+</ParamField>
+
+**Throws:**
+- `std::invalid_argument` — outer list is empty
+- `std::invalid_argument` — any inner row is empty
+- `std::invalid_argument` — rows have inconsistent lengths
+
+**Complexity:** O(rows · cols)
+
+```cpp
+Linea::Matrix<double> A{{1.0, 2.0, 3.0},
+                         {4.0, 5.0, 6.0},
+                         {7.0, 8.0, 9.0}};
+```
+
+<Note>
+  The constructor is `explicit` to prevent accidental implicit conversions from
+  nested brace lists in function arguments.
+</Note>
+
+</Accordion>
+
+<Accordion title="Matrix(const Matrix<U>&) — type-casting constructor">
+
+Performs an element-wise `static_cast` from a matrix of type `U` to type `M`:
+`A_{ij}^{(M)} = static_cast<M>(B_{ij}^{(U)})`.
+
+```cpp
+template <NumericType U>
+explicit Matrix(const Matrix<U>& matrix);
+```
+
+<ParamField path="matrix" type="const Matrix<U>&" required>
+  Source matrix whose scalar type `U` is different from `M`.
+</ParamField>
+
+**Complexity:** O(rows · cols)
+
+```cpp
+Linea::Matrix<int>    I{{1, 2}, {3, 4}};
+Linea::Matrix<double> D(I); // element-wise cast: int → double
+```
+
+<Warning>
+  This constructor is `explicit`. No implicit narrowing or widening between
+  matrix types occurs — you must always call it directly.
+</Warning>
+
+</Accordion>
+
+---
+
+## Static Factories
+
+<Accordion title="Matrix<M>::identity(size_t n) — n×n identity">
+
+Returns the `n × n` identity matrix where `I_{ij} = 1` if `i == j`, else `0`.
+
+```cpp
+static Matrix<M> identity(std::size_t n);
+```
+
+```cpp
+auto I4 = Linea::Matrix<double>::identity(4);
+```
+
+</Accordion>
+
+<Accordion title="Matrix<M>::zeros(size_t r, size_t c) — all zeros">
+
+Returns an `r × c` matrix with every element set to `M{0}`.
+
+```cpp
+static Matrix<M> zeros(std::size_t r, std::size_t c);
+```
+
+```cpp
+auto Z = Linea::Matrix<float>::zeros(3, 5);
+```
+
+</Accordion>
+
+<Accordion title="Matrix<M>::ones(size_t r, size_t c) — all ones">
+
+Returns an `r × c` matrix with every element set to `M{1}`.
+
+```cpp
+static Matrix<M> ones(std::size_t r, std::size_t c);
+```
+
+```cpp
+auto O = Linea::Matrix<double>::ones(2, 6);
+```
+
+</Accordion>
+
+<Accordion title="Matrix<M>::random(size_t r, size_t c, M min, M max) — uniform random">
+
+Fills an `r × c` matrix with values drawn uniformly from `[min, max]`.
+
+- Uses `std::uniform_int_distribution<M>` for `IntegralType`.
+- Uses `std::uniform_real_distribution<M>` for `RealType`.
+
+```cpp
+static Matrix<M> random(std::size_t r, std::size_t c, M min, M max);
+```
+
+<ParamField path="r" type="size_t" required>Row count.</ParamField>
+<ParamField path="c" type="size_t" required>Column count.</ParamField>
+<ParamField path="min" type="M" required>Lower bound (inclusive).</ParamField>
+<ParamField path="max" type="M" required>Upper bound (inclusive for integral, exclusive for real).</ParamField>
+
+**Thread safety:** Uses a `thread_local` Mersenne-Twister engine — safe for concurrent calls from different threads, but results are non-deterministic across runs.
+
+```cpp
+auto R = Linea::Matrix<double>::random(4, 4, -1.0, 1.0);
+```
+
+</Accordion>
+
+---
+
+## Dimension Accessors
+
+| Method | Return | Description |
+|---|---|---|
+| `nrows() const` | `size_t` | Number of rows |
+| `ncols() const` | `size_t` | Number of columns |
+| `size() const` | `size_t` | Total element count: `nrows() * ncols()` |
+| `empty() const noexcept` | `bool` | True if underlying storage holds no elements |
+
+---
+
+## Element Access
+
+<Accordion title="operator()(size_t i, size_t j) — bounds-checked access">
+
+Returns a reference to element `A_{ij}`. Both the mutable and const overloads perform bounds checking.
+
+```cpp
+M&       operator()(std::size_t i, std::size_t j);
+const M& operator()(std::size_t i, std::size_t j) const;
+```
+
+**Throws:** `std::out_of_range` if `i >= nrows()` or `j >= ncols()`.  
+**Complexity:** O(1)
+
+```cpp
+Linea::Matrix<double> A{{10.0, 20.0}, {30.0, 40.0}};
+A(0, 1) = 99.0;           // mutate element at row 0, col 1
+double v = A(1, 0);       // read element at row 1, col 0 → 30.0
+```
+
+</Accordion>
+
+<Accordion title="raw() noexcept — direct pointer access">
+
+Returns a raw pointer to the first element of the contiguous storage block. Suitable for interoperability with C APIs, BLAS, or custom SIMD routines.
+
+```cpp
+[[nodiscard]] M*       raw() noexcept;
+[[nodiscard]] const M* raw() const noexcept;
+```
+
+**Complexity:** O(1) — no allocation.
+
+</Accordion>
+
+<Accordion title="data_ref() const& — const reference to storage">
+
+Returns a `const` reference to the underlying `std::vector<M>`, giving read access to the full storage and its STL interface.
+
+```cpp
+const std::vector<M>& data_ref() const&;
+```
+
+</Accordion>
+
+---
+
+## Row and Column Access
+
+### Extraction
+
+<Accordion title="get_row(size_t row_index) → Vector<M>">
+
+Copies row `row_index` into a new `Vector<M>` of length `ncols()`.
+
+```cpp
+Vector<M> get_row(std::size_t row_index) const;
+```
+
+**Throws:** `std::out_of_range` if `row_index >= nrows()`.  
+**Complexity:** O(ncols)
+
+</Accordion>
+
+<Accordion title="get_column(size_t col_index) → Vector<M>">
+
+Copies column `col_index` into a new `Vector<M>` of length `nrows()`. Because columns are not contiguous in row-major storage, each element requires a stride-based read.
+
+```cpp
+Vector<M> get_column(std::size_t col_index) const;
+```
+
+**Throws:** `std::out_of_range` if `col_index >= ncols()`.  
+**Complexity:** O(nrows)
+
+</Accordion>
+
+### Mutation
+
+<Accordion title="set_row(size_t row_index, const Vector<M>& other)">
+
+Overwrites row `row_index` with the contents of `other`. The vector must have exactly `ncols()` elements.
+
+```cpp
+void set_row(std::size_t row_index, const Vector<M>& other);
+```
+
+**Throws:**
+- `std::out_of_range` — index out of range
+- `std::invalid_argument` — `other.size() != ncols()`
+
+**Complexity:** O(ncols)
+
+</Accordion>
+
+<Accordion title="set_column(size_t col_index, const Vector<M>& other)">
+
+Overwrites column `col_index` with the contents of `other`. The vector must have exactly `nrows()` elements.
+
+```cpp
+void set_column(std::size_t col_index, const Vector<M>& other);
+```
+
+**Throws:**
+- `std::out_of_range` — index out of range
+- `std::invalid_argument` — `other.size() != nrows()`
+
+**Complexity:** O(nrows)
+
+</Accordion>
+
+### Permutation
+
+<Accordion title="swap_row(size_t r1, size_t r2)">
+
+Exchanges the contents of rows `r1` and `r2` in-place using `std::swap_ranges`.
+
+```cpp
+void swap_row(std::size_t r1, std::size_t r2);
+```
+
+**Throws:** `std::out_of_range` if either index is out of range.  
+**Complexity:** O(ncols)
+
+</Accordion>
+
+<Accordion title="swap_column(size_t c1, size_t c2)">
+
+Exchanges the contents of columns `c1` and `c2` in-place with a stride loop.
+
+```cpp
+void swap_column(std::size_t c1, std::size_t c2);
+```
+
+**Throws:** `std::out_of_range` if either index is out of range.  
+**Complexity:** O(nrows)
+
+</Accordion>
+
+---
+
+## Concatenation
+
+<Accordion title="vstack(const Matrix<M>& other) → Matrix<M> — vertical stack">
+
+Produces a new matrix by appending `other` below `*this`. If `A ∈ 𝔽^{m×n}` and `B ∈ 𝔽^{k×n}`, the result is `C ∈ 𝔽^{(m+k)×n}`.
+
+```cpp
+Matrix<M> vstack(const Matrix<M>& other) const;
+```
+
+**Throws:** `std::invalid_argument` if `ncols() != other.ncols()`.  
+**Complexity:** O((m+k) · n)
+
+```cpp
+Linea::Matrix<double> A{{1, 2, 3}};
+Linea::Matrix<double> B{{4, 5, 6}};
+auto C = A.vstack(B); // 2×3: [[1,2,3],[4,5,6]]
+```
+
+</Accordion>
+
+<Accordion title="hstack(const Matrix<M>& other) → Matrix<M> — horizontal stack">
+
+Produces a new matrix by appending `other` to the right of `*this`. If `A ∈ 𝔽^{m×n}` and `B ∈ 𝔽^{m×k}`, the result is `C ∈ 𝔽^{m×(n+k)}`.
+
+```cpp
+Matrix<M> hstack(const Matrix<M>& other) const;
+```
+
+**Throws:** `std::invalid_argument` if `nrows() != other.nrows()`.  
+**Complexity:** O(m · (n+k))
+
+```cpp
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+Linea::Matrix<double> B{{5}, {6}};
+auto C = A.hstack(B); // 2×3: [[1,2,5],[3,4,6]]
+```
+
+</Accordion>
+
+---
+
+## Statistical Reductions
+
+All reductions traverse elements in row-major order.
+
+| Method | Return type (integral M) | Return type (real M) | Throws |
+|---|---|---|---|
+| `sum()` | `std::common_type_t<M, long long>` | `M` | — |
+| `mean()` | `std::common_type_t<M, double>` | `M` | `std::domain_error` if empty |
+| `min()` | `M` | `M` | `std::runtime_error` if empty |
+| `max()` | `M` | `M` | `std::runtime_error` if empty |
+
+```cpp
+Linea::Matrix<double> A{{1.0, 2.0}, {3.0, 4.0}};
+double s = A.sum();   // 10.0
+double m = A.mean();  // 2.5
+double lo = A.min();  // 1.0
+double hi = A.max();  // 4.0
+```
+
+<Note>
+  `sum()` for integral types accumulates into `long long` to avoid overflow
+  when summing large matrices of small integers. For real types it accumulates
+  directly in `M`.
+</Note>
+
+---
+
+## Iterator Interface
+
+`Matrix<M>` exposes the full STL-compatible random-access iterator interface over its flattened row-major storage. All six standard iterator accessors are available:
+
+```cpp
+iterator       begin();    const_iterator  begin()  const;
+iterator       end();      const_iterator  end()    const;
+reverse_iterator rbegin(); const_reverse_iterator rbegin() const;
+reverse_iterator rend();   const_reverse_iterator rend()   const;
+const_iterator cbegin() const;
+const_iterator cend()   const;
+```
+
+Iterators traverse elements in row-major order — row 0 first, then row 1, and so on — making range-based for loops and STL algorithms work naturally.
+
+```cpp
+Linea::Matrix<int> A{{1, 2}, {3, 4}};
+for (int v : A) {
+    // visits: 1, 2, 3, 4
+}
+
+// Use with STL algorithm
+std::transform(A.begin(), A.end(), A.begin(),
+               [](int x) { return x * 2; });
+```

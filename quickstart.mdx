@@ -1,47 +1,225 @@
 ---
-title: "Quickstart"
-description: "Begin with a guide on the fastest path to a successful outcome"
+title: "Get Up and Running with Linea in Under Five Minutes"
+sidebarTitle: "Quickstart"
+description: "Learn to create vectors and matrices, perform arithmetic, compute norms and dot products, and run a basic LU linear system solve with Linea."
 ---
 
-Describe how someone begins using your product. What is the first thing they need to do? Are there any prerequisites?
+This guide walks you through the most common Linea workflows — from construction and arithmetic through norms, matrix operations, and solving a linear system — using only real API signatures from the source. Every snippet below compiles as-is with a C++20 compiler once `Linea.hpp` is on your include path.
 
-A quickstart should take someone from zero to using your product. They'll get a quick win and a sense of what they can accomplish.
-
-## Prerequisites
-
-Before you begin, you must have:
-
-- Requirement one (for example, Node.js 18+, a free account, an API key)
-- Requirement two (for example, a compatible device, a compatible browser, a compatible operating system)
-
-## Get started
+<Note>
+  All dimension mismatches in Linea throw `std::invalid_argument`. This includes mismatched operand sizes in vector/matrix arithmetic, out-of-bounds element access, and shape incompatibilities in operations such as `vstack`, `hstack`, and `reshape`.
+</Note>
 
 <Steps>
-  <Step title="Install">
-    Describe how to install your product or sign up.
 
-    ```bash
-    npm install your-package
+  <Step title="Include the umbrella header">
+    The fastest way to get started is the single umbrella header, which includes every module:
+
+    ```cpp
+    #include <Linea.hpp>
+    #include <iostream>
+    ```
+
+    All types and functions are then accessible under the `Linea::` namespace (and `Linea::Decompositions::` / `Linea::IO::` for decompositions and output helpers).
+
+    <Tip>
+      In large projects with many translation units, prefer granular headers such as `<Linea/Vector/Vector.hpp>` or `<Linea/Matrix/Matrix.hpp>` to reduce per-file parse time. The umbrella header compiles all four decomposition implementations and every math helper in one shot.
+    </Tip>
+  </Step>
+
+  <Step title="Create vectors">
+    `Vector<V>` is a dynamically-sized dense vector whose scalar type `V` must satisfy the `NumericType` concept (arithmetic integers or floating-point types — `bool` and character types are excluded at compile time).
+
+    ```cpp
+    // Zero-initialized vector of length 5
+    Linea::Vector<double> a(5);
+
+    // Vector of length 3 with every element set to 5.0
+    Linea::Vector<double> b(3, 5.0);
+
+    // Constructed from an initializer list
+    Linea::Vector<double> c{1.0, 2.0, 3.0};
+
+    // Random vector of length 4, values drawn uniformly from [-5.0, 5.0]
+    Linea::Vector<double> d = Linea::Vector<double>::random(4, -5.0, 5.0);
+    ```
+
+    `Vector::random()` uses a thread-local Mersenne Twister, so concurrent construction across threads is safe without external synchronization.
+  </Step>
+
+  <Step title="Access elements and compute vector operations">
+    Element access uses `operator[]` with bounds checking. Out-of-range indices throw `std::invalid_argument`.
+
+    ```cpp
+    Linea::Vector<double> v{3.0, 4.0, 0.0};
+
+    double first = v[0];   // 3.0
+    v[1] = 1.0;            // mutate in place
+
+    // Dot product: Σ vᵢ wᵢ
+    Linea::Vector<double> w{1.0, 0.0, 0.0};
+    double d = v.dot(w);   // 3.0
+
+    // L2 (Euclidean) norm: sqrt(Σ vᵢ²)
+    double len = v.norm(Linea::VectorNorm::Two);
+
+    // Other available norms
+    double l1  = v.norm(Linea::VectorNorm::One);       // Σ |vᵢ|
+    double inf = v.norm(Linea::VectorNorm::Infinity);   // max |vᵢ|
+    double lp  = v.norm(Linea::VectorNorm::P, 3.0);    // Lp with p=3
+    ```
+
+    Arithmetic operators (`+`, `-`, scalar `*`) and `hadamard()` (element-wise product) are also available, with automatic scalar-type promotion for mixed-type operands.
+  </Step>
+
+  <Step title="Create matrices">
+    `Matrix<M>` is a row-major, contiguous dense matrix. Like vectors, its scalar type must satisfy `NumericType`.
+
+    ```cpp
+    // Zero-initialized 3×3 matrix
+    Linea::Matrix<double> A(3, 3);
+
+    // 3×5 matrix with every element set to 2.0
+    Linea::Matrix<double> B(3, 5, 2.0);
+
+    // Constructed from a nested initializer list
+    Linea::Matrix<double> C{{1, 2, 3},
+                            {4, 5, 6},
+                            {7, 8, 9}};
+
+    // Static factory constructors
+    Linea::Matrix<double> I = Linea::Matrix<double>::identity(4);      // 4×4 identity
+    Linea::Matrix<double> Z = Linea::Matrix<double>::zeros(3, 3);      // all zeros
+    Linea::Matrix<double> O = Linea::Matrix<double>::ones(2, 4);       // all ones
+    Linea::Matrix<double> R = Linea::Matrix<double>::random(4, 4, -1.0, 1.0); // random
+    ```
+
+    Element access uses `operator()(i, j)` (row-major, zero-indexed).
+  </Step>
+
+  <Step title="Perform matrix arithmetic">
+    Linea overloads the standard arithmetic operators for matrices and supports mixed scalar-type promotion:
+
+    ```cpp
+    Linea::Matrix<double> A{{1, 2}, {3, 4}};
+    Linea::Matrix<double> B{{5, 6}, {7, 8}};
+
+    Linea::Matrix<double> S = A + B;   // element-wise addition
+    Linea::Matrix<double> D = A - B;   // element-wise subtraction
+    Linea::Matrix<double> P = A * B;   // matrix–matrix product
+
+    // Transpose
+    Linea::Matrix<double> AT = A.transpose();
+
+    // Dimension inspection
+    std::size_t r = A.nrows();   // 2
+    std::size_t c = A.ncols();   // 2
+
+    // Statistical reductions
+    double s = A.sum();    // 10.0
+    double m = A.mean();   // 2.5
+    double mn = A.min();   // 1.0
+    double mx = A.max();   // 4.0
     ```
   </Step>
-  <Step title="Configure">
-    Describe any setup or configuration needed before first use.
 
-    ```bash
-    your-cli init
+  <Step title="Solve a linear system">
+    `Matrix<M>::solve(b)` solves the square linear system **Ax = b** using an LU decomposition with partial pivoting. The method is available for `RealType` scalars (`float`, `double`, `long double`).
+
+    ```cpp
+    Linea::Matrix<double> A{{4.0, 3.0},
+                            {6.0, 3.0}};
+
+    Linea::Vector<double> b{10.0, 12.0};
+
+    // Solves A x = b and returns the solution vector x
+    Linea::Vector<double> x = A.solve(b);
+    ```
+
+    If you need the L, U, and P factors explicitly — for example to compute a determinant or the numerical rank — use `Linea::Decompositions::LU<T>` directly:
+
+    ```cpp
+    Linea::Decompositions::LU<double> lu(A);
+
+    Linea::Matrix<double> L = lu.L();
+    Linea::Matrix<double> U = lu.U();
+    Linea::Matrix<double> P = lu.P();
+
+    std::size_t rank       = lu.rank();
+    std::size_t swaps      = lu.swap_count();
     ```
   </Step>
-  <Step title="Run it">
-    Show the first thing a user does to see it working.
 
-    ```bash
-    your-cli start
+  <Step title="Display results">
+    `Linea::IO::display()` writes a formatted representation of any vector or matrix to an `std::ostream`. It preserves the stream's original flags and precision after returning.
+
+    ```cpp
+    // Print a vector (default: vertical format, fixed precision 4)
+    Linea::IO::display(std::cout, x);
+
+    // Chain with a label on the same stream
+    Linea::IO::display(std::cout << "Solution x:\n", x);
+
+    // Print a matrix
+    Linea::IO::display(std::cout << "Matrix A:\n", A);
     ```
+
+    The `display()` overloads accept an optional format struct (`VectorFormat` / `MatrixFormat`) to configure precision, column width, scientific notation, and whether to print matrix dimensions.
   </Step>
+
 </Steps>
 
-<Tip>
-  Give people a way to get help. This could be a link to a support page, a chat with a customer support agent, or a forum for your product.
+---
 
-  Example: Need help? Reach out to us at [support@yourcompany.com](mailto:support@yourcompany.com).
-</Tip>
+## Complete Working Example
+
+The snippet below combines every step above into a single compilable program:
+
+```cpp
+#include <Linea.hpp>
+#include <iostream>
+
+int main() {
+    // --- Vectors ---
+    Linea::Vector<double> a(5);                                       // zero, length 5
+    Linea::Vector<double> b(3, 5.0);                                  // filled with 5.0
+    Linea::Vector<double> c{1.0, 2.0, 3.0};                          // initializer list
+    Linea::Vector<double> d = Linea::Vector<double>::random(4, -5.0, 5.0); // random
+
+    Linea::IO::display(std::cout << "c: ", c);
+
+    double dot_cd = c.dot(Linea::Vector<double>{4.0, 5.0, 6.0});     // 32.0
+    double norm_c = c.norm(Linea::VectorNorm::Two);                   // sqrt(14)
+
+    std::cout << "dot(c, [4,5,6]) = " << dot_cd << "\n";
+    std::cout << "||c||_2         = " << norm_c << "\n\n";
+
+    // --- Matrices ---
+    Linea::Matrix<double> A{{4.0, 3.0},
+                            {6.0, 3.0}};
+
+    Linea::Matrix<double> I = Linea::Matrix<double>::identity(2);
+    Linea::Matrix<double> S = A + I;
+    Linea::Matrix<double> T = A.transpose();
+
+    Linea::IO::display(std::cout << "A:\n", A);
+    Linea::IO::display(std::cout << "\nA + I:\n", S);
+    Linea::IO::display(std::cout << "\nA^T:\n", T);
+
+    // --- Linear system solve ---
+    Linea::Vector<double> rhs{10.0, 12.0};
+    Linea::Vector<double> x = A.solve(rhs);
+
+    Linea::IO::display(std::cout << "\nSolution of A*x = b:\n", x);
+
+    // --- Explicit LU factors ---
+    Linea::Decompositions::LU<double> lu(A);
+    std::cout << "\nNumerical rank : " << lu.rank()       << "\n";
+    std::cout << "Row swaps      : " << lu.swap_count() << "\n";
+
+    Linea::IO::display(std::cout << "\nL factor:\n", lu.L());
+    Linea::IO::display(std::cout << "\nU factor:\n", lu.U());
+
+    return 0;
+}
+```

@@ -1,0 +1,277 @@
+---
+title: "Vector Arithmetic, Norms, and Geometric Operations"
+sidebarTitle: "Operations"
+description: "All arithmetic operators, norms, dot product, distance, angle, outer product, concatenation, and segment extraction for Linea::Vector<V>."
+---
+
+`Linea::Vector<V>` provides a complete set of linear algebra operations spanning element-wise arithmetic, inner and outer products, several vector norms, Euclidean distance, angular separation, matrix reshaping, vector concatenation, and subvector extraction. All operations defined in `VectorOperations.hpp` are implemented as RESTRICT-qualified raw-pointer loops for predictable, cache-friendly performance. Every operation that requires matching dimensions validates the constraint and throws `std::invalid_argument` on a mismatch — there are no silent dimension truncations.
+
+<Warning>
+All operations that require two vectors of the same size — addition, subtraction, Hadamard product, dot product, distance, and angle — throw `std::invalid_argument` when the sizes differ. Similarly, `reshape` throws if `rows * cols != size()`, and `segment` throws `std::out_of_range` if the requested range exceeds the vector's bounds.
+</Warning>
+
+---
+
+## Arithmetic Operators
+
+### Element-wise addition
+
+```cpp
+// Same-type overload
+Vector<V> operator+(const Vector<V>& other) const;
+
+// Mixed-type overload — result type is std::common_type_t<T, V>
+template <NumericType T>
+Vector<Numeric<T, V>> operator+(const Vector<T>& other) const;
+```
+
+```cpp
+Linea::Vector<double> a{1.0, 2.0, 3.0};
+Linea::Vector<double> b{4.0, 5.0, 6.0};
+auto c = a + b; // {5.0, 7.0, 9.0}
+
+// Mixed types: int + double → double
+Linea::Vector<int>    u{1, 2, 3};
+Linea::Vector<double> v{0.5, 0.5, 0.5};
+auto w = u + v; // Vector<double>{1.5, 2.5, 3.5}
+```
+
+---
+
+### Element-wise subtraction
+
+```cpp
+// Same-type overload
+Vector<V> operator-(const Vector<V>& other) const;
+
+// Mixed-type overload
+template <NumericType T>
+Vector<Numeric<T, V>> operator-(const Vector<T>& other) const;
+```
+
+```cpp
+Linea::Vector<double> a{5.0, 7.0, 9.0};
+Linea::Vector<double> b{1.0, 2.0, 3.0};
+auto c = a - b; // {4.0, 5.0, 6.0}
+```
+
+---
+
+### Hadamard product (element-wise multiply)
+
+```cpp
+// Same-type overload
+Vector<V> hadamard(const Vector<V>& other) const;
+
+// Mixed-type overload
+template <NumericType T>
+Vector<Numeric<T, V>> hadamard(const Vector<T>& other) const;
+```
+
+The Hadamard product is the component-wise product, distinct from the dot product (which returns a scalar) and the outer product (which returns a matrix).
+
+```cpp
+Linea::Vector<double> a{2.0, 3.0, 4.0};
+Linea::Vector<double> b{5.0, 6.0, 7.0};
+auto h = a.hadamard(b); // {10.0, 18.0, 28.0}
+```
+
+---
+
+### Scalar multiplication
+
+```cpp
+// Right scalar: returns Vector<Numeric<V, S>>
+template <NumericType S>
+Vector<Numeric<V, S>> operator*(S scalar) const;
+
+// Same-type right scalar
+Vector<V> operator*(V scalar) const;
+
+// Left scalar (free function, same promotion rules)
+template <NumericType S, NumericType V>
+Vector<Numeric<V, S>> operator*(S scalar, const Vector<V>& vector);
+```
+
+```cpp
+Linea::Vector<double> v{1.0, 2.0, 3.0};
+auto scaled = v * 3.0;    // {3.0, 6.0, 9.0}
+auto left   = 2.0 * v;    // {2.0, 4.0, 6.0}
+
+// Mixed: int vector × double scalar → double vector
+Linea::Vector<int> u{1, 2, 3};
+auto promoted = u * 2.5;  // Vector<double>{2.5, 5.0, 7.5}
+```
+
+---
+
+### Dot product
+
+```cpp
+V dot(const Vector<V>& other) const;
+```
+
+Computes the inner product **⟨v, w⟩ = Σ vᵢwᵢ**, returning a scalar of type `V`. O(n).
+
+```cpp
+Linea::Vector<double> a{1.0, 2.0, 3.0};
+Linea::Vector<double> b{4.0, 5.0, 6.0};
+double d = a.dot(b); // 1*4 + 2*5 + 3*6 = 32.0
+```
+
+<Note>
+Mixed-type dot products are not directly supported by `dot()`. To compute a dot product between `Vector<int>` and `Vector<double>`, cast one vector first using the type-casting constructor: `Vector<double>(intVec).dot(doubleVec)`.
+</Note>
+
+---
+
+## Norms
+
+```cpp
+double norm(VectorNorm type = VectorNorm::Two, double p = 2.0) const;
+```
+
+Dispatches to one of four norm implementations based on the `VectorNorm` enum. All norms return `double` for numerical stability regardless of `V`.
+
+| `VectorNorm` enumerator | Formula | Notes |
+|---|---|---|
+| `VectorNorm::One` | Σ \|xᵢ\| | L1 / Manhattan norm |
+| `VectorNorm::Two` | √(Σ xᵢ²) | L2 / Euclidean norm (default) |
+| `VectorNorm::Infinity` | max \|xᵢ\| | Throws `std::domain_error` if vector is empty |
+| `VectorNorm::P` | (Σ \|xᵢ\|ᵖ)^(1/p) | Throws `std::invalid_argument` if `p < 1` |
+
+```cpp
+Linea::Vector<double> v{3.0, -4.0, 0.0};
+
+double l1  = v.norm(Linea::VectorNorm::One);      // 7.0
+double l2  = v.norm();                             // 5.0 (default L2)
+double inf = v.norm(Linea::VectorNorm::Infinity);  // 4.0
+double lp  = v.norm(Linea::VectorNorm::P, 3.0);   // (27 + 64)^(1/3) ≈ 4.497
+```
+
+---
+
+## Geometric Free Functions
+
+### Euclidean distance
+
+```cpp
+template <NumericType T>
+double distance(const Vector<T>& a, const Vector<T>& b);
+```
+
+Computes **‖a − b‖₂ = √(Σ(aᵢ − bᵢ)²)**. Returns `double`. Throws `std::invalid_argument` if sizes differ.
+
+```cpp
+Linea::Vector<double> a{0.0, 0.0, 0.0};
+Linea::Vector<double> b{3.0, 4.0, 0.0};
+double d = Linea::distance(a, b); // 5.0
+```
+
+---
+
+### Angle between vectors
+
+```cpp
+template <NumericType T>
+double angle(const Vector<T>& a, const Vector<T>& b);
+```
+
+Returns the angle in radians between two vectors using:
+
+```
+θ = acos( dot(a, b) / (‖a‖₂ · ‖b‖₂) )
+```
+
+The cosine value is clamped to `[-1, 1]` before `acos` to guard against floating-point rounding pushing it slightly outside the domain. Result is in **[0, π]**.
+
+```cpp
+Linea::Vector<double> a{1.0, 0.0};
+Linea::Vector<double> b{0.0, 1.0};
+double theta = Linea::angle(a, b); // π/2 ≈ 1.5708
+```
+
+---
+
+## Structural Operations
+
+### Outer product
+
+```cpp
+Matrix<V> outer(const Vector<V>& other) const;
+```
+
+Computes the outer product, returning a `Matrix<V>` of shape `(this->size() × other.size())` where `result(i, j) = (*this)[i] * other[j]`. O(n·m).
+
+```cpp
+Linea::Vector<double> a{1.0, 2.0, 3.0};
+Linea::Vector<double> b{4.0, 5.0};
+auto M = a.outer(b);
+// M is a 3×2 Matrix<double>:
+// [[ 4.0,  5.0],
+//  [ 8.0, 10.0],
+//  [12.0, 15.0]]
+```
+
+---
+
+### Reshape to matrix
+
+```cpp
+Matrix<V> reshape(std::size_t rows, std::size_t cols) const;
+```
+
+Reinterprets the vector's elements as a row-major matrix of shape `(rows × cols)`. Throws `std::invalid_argument` if `rows * cols != size()`.
+
+```cpp
+Linea::Vector<double> v{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};
+auto M = v.reshape(2, 3);
+// 2×3 Matrix: [[1,2,3],[4,5,6]]
+```
+
+---
+
+### Concatenation
+
+```cpp
+// Same-type concatenation
+Vector<V> join(const Vector<V>& other) const;
+
+// Mixed-type concatenation — result is promoted type
+template <NumericType T>
+Vector<Numeric<T, V>> join(const Vector<T>& other) const;
+
+// Operator aliases
+Vector<V> operator|(const Vector<V>& other) const;
+template <NumericType T>
+Vector<Numeric<T, V>> operator|(const Vector<T>& other) const;
+```
+
+Appends `other`'s elements after `this`'s elements and returns a new vector of size `this->size() + other.size()`.
+
+```cpp
+Linea::Vector<double> a{1.0, 2.0};
+Linea::Vector<double> b{3.0, 4.0, 5.0};
+
+auto c = a.join(b); // {1.0, 2.0, 3.0, 4.0, 5.0}
+auto d = a | b;     // identical to join
+```
+
+<Tip>
+`operator|` is a direct alias for `join`. The two are interchangeable. Use `|` when writing pipeline-style code where readability benefits from an infix operator; use `.join()` when the intent needs to be self-documenting in function chains.
+</Tip>
+
+---
+
+### Segment extraction
+
+```cpp
+Vector<V> segment(std::size_t start, std::size_t length) const;
+```
+
+Extracts a contiguous subvector starting at index `start` with `length` elements. Returns a new independently owned vector. Throws `std::out_of_range` if `start + length > size()`.
+
+```cpp
+Linea::Vector<double> v{10.0, 20.0, 30.0, 40.0, 50.0};
+auto sub = v.segment(1, 3); // {20.0, 30.0, 40.0}
+```

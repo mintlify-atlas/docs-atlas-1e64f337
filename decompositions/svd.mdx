@@ -1,0 +1,174 @@
+---
+title: "Singular Value Decomposition with Golub–Kahan in Linea"
+sidebarTitle: "SVD"
+description: "Linea::Decompositions::SVD<Tp> computes A=UΣVᵀ via Householder bidiagonalization and Golub–Kahan iteration, with pseudoinverse and condition number."
+---
+
+Singular Value Decomposition (SVD) factors any real matrix **A** into **A = U Σ Vᵀ**, where **U** and **V** are orthogonal matrices and **Σ** is a diagonal matrix of non-negative singular values in descending order. Linea's `SVD<Tp>` uses a two-stage algorithm — Householder bidiagonalization followed by Golub–Kahan implicit QR iteration — and provides the pseudoinverse, numerical rank, and condition number directly from the computed singular values.
+
+## Namespace and Class
+
+```cpp
+namespace Linea::Decompositions
+
+template <RealType Tp> class SVD
+```
+
+## Factorization
+
+For an m × n matrix **A**, with k = min(m, n):
+
+```text
+A = U Σ Vᵀ
+```
+
+where:
+- **U** is orthogonal: m × m (Full) or m × k (Thin)
+- **Σ** is diagonal with k non-negative singular values in descending order
+- **V** is orthogonal: n × n (Full) or n × k (Thin)
+
+## Algorithm
+
+The decomposition runs in three stages:
+
+<Steps>
+  <Step title="Householder Bidiagonalization">
+    Alternating left and right Householder reflectors reduce **A** to a bidiagonal matrix **B** while accumulating the transformations into **U** and **V**. Left reflectors annihilate subdiagonal entries column-by-column; right reflectors annihilate superdiagonal entries row-by-row.
+  </Step>
+  <Step title="Golub–Kahan Implicit QR Iteration">
+    Applies Givens rotations with a Wilkinson shift to the bidiagonal form until the superdiagonal entries converge to zero. Each sweep processes an active submatrix between two structurally zero off-diagonal entries and updates **U** and **V** in-place with the corresponding rotations.
+  </Step>
+  <Step title="Post-Processing">
+    Singular values that converged to negative values have their sign flipped and the corresponding column of **V** negated, ensuring all σᵢ ≥ 0. The singular values (and corresponding columns of **U** and **V**) are then sorted in descending order by a selection sort.
+  </Step>
+</Steps>
+
+## Constructor
+
+```cpp
+SVD(const Matrix<Tp>& A,
+    ComputeMode mode    = ComputeMode::Thin,
+    Tp eps              = Tp(1e-12),
+    size_t maxIters     = 1000)
+```
+
+All four stages run immediately on construction. Parameters:
+
+| Parameter | Default | Description |
+|---|---|---|
+| `A` | — | Input matrix to decompose |
+| `mode` | `ComputeMode::Thin` | Thin or Full decomposition |
+| `eps` | `1e-12` | Convergence tolerance for QR iteration; also used as the default threshold for rank, condition number, and pseudoinverse |
+| `maxIters` | `1000` | Maximum number of QR iteration sweeps |
+
+<Warning>
+If the Golub–Kahan QR iteration does not converge within `maxIters` sweeps, the constructor throws `std::runtime_error("SVD failed to converge")`. This is rare but can occur for pathological input matrices. Increasing `maxIters` or scaling the input may help.
+</Warning>
+
+## Accessors
+
+| Method | Signature | Description |
+|---|---|---|
+| `singularValues()` | `const Vector<Tp>& singularValues() const noexcept` | Singular values, size k, sorted descending |
+| `U()` | `const Matrix<Tp>& U() const noexcept` | Left singular vectors |
+| `V()` | `const Matrix<Tp>& V() const noexcept` | Right singular vectors |
+| `rank(eps)` | `std::size_t rank(Tp eps = Tp(1e-12)) const` | Count of σᵢ > eps · σ_max |
+| `condition_number(eps)` | `Tp condition_number(Tp eps = Tp(1e-12)) const` | σ_max / σ_min; returns ∞ if singular |
+| `pseudoinverse(eps)` | `Matrix<Tp> pseudoinverse(Tp eps = Tp(1e-12)) const` | Moore–Penrose pseudoinverse, n × m |
+
+<Note>
+Singular values are always sorted in descending order and guaranteed to be non-negative after construction. The post-processing stage flips any negative values and reorders everything before the constructor returns.
+</Note>
+
+## `ComputeMode`: Thin vs Full
+
+| Mode | **U** shape | **V** shape |
+|---|---|---|
+| `ComputeMode::Thin` | m × k | n × k |
+| `ComputeMode::Full` | m × m | n × n |
+
+Thin mode (the default) returns an economy decomposition: only the k = min(m, n) leading singular vectors are computed and stored. This is sufficient for the pseudoinverse, rank, and condition number, and uses less memory than the full decomposition.
+
+## Example
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{1, 2},
+                        {3, 4},
+                        {5, 6}};
+
+// Thin SVD (default)
+Linea::Decompositions::SVD<double> svd(A, Linea::ComputeMode::Thin);
+
+// Singular values (sorted descending), size k = min(3,2) = 2
+const auto& sv = svd.singularValues();
+
+// Thin factors
+const auto& U = svd.U(); // 3×2
+const auto& V = svd.V(); // 2×2
+
+// Derived quantities
+std::size_t r  = svd.rank();             // number of σᵢ above threshold
+double kappa   = svd.condition_number(); // σ_max / σ_min
+
+// Moore–Penrose pseudoinverse: A⁺ = V Σ⁺ Uᵀ, shape 2×3
+auto Aplus = svd.pseudoinverse();
+```
+
+## Applications
+
+<Accordion title="Numerical Rank Determination">
+`rank(eps)` counts singular values satisfying σᵢ > eps · σ_max. This gives a numerically robust rank estimate that is insensitive to the scale of **A**.
+
+```cpp
+// Count singular values larger than 1e-10 · σ_max
+std::size_t r = svd.rank(1e-10);
+```
+
+SVD-based rank is more reliable than rank from LU or QR without column pivoting, particularly for nearly rank-deficient matrices.
+</Accordion>
+
+<Accordion title="Condition Number">
+`condition_number(eps)` returns σ_max / σ_min over singular values that exceed `eps`. Singular values below `eps` are excluded to avoid dividing by noise.
+
+```cpp
+double kappa = svd.condition_number(); // ∞ if rank-deficient
+```
+
+A large condition number (e.g., > 10⁸ for `double`) indicates that **A** is ill-conditioned: small perturbations in **b** can cause large changes in the solution of **Ax = b**.
+</Accordion>
+
+<Accordion title="Moore–Penrose Pseudoinverse">
+`pseudoinverse(eps)` computes **A⁺ = V Σ⁺ Uᵀ**, where reciprocals are taken only for singular values satisfying σᵢ > eps · σ_max. The result is an n × m matrix.
+
+```cpp
+// Default threshold eps = 1e-12
+auto Aplus = svd.pseudoinverse();
+
+// Stricter truncation: treat σ < 1e-8 · σ_max as zero
+auto Aplus_trunc = svd.pseudoinverse(1e-8);
+```
+
+The pseudoinverse gives the minimum-norm least-squares solution: **x = A⁺ b** minimizes ‖x‖₂ among all vectors minimizing ‖Ax − b‖₂.
+</Accordion>
+
+<Accordion title="Low-Rank Approximation">
+The Eckart–Young theorem guarantees that the best rank-k approximation to **A** (in both the spectral and Frobenius norms) is:
+
+```text
+A_k = Σ_{i=1}^{k} σᵢ uᵢ vᵢᵀ
+```
+
+Linea does not expose a dedicated low-rank approximation method, but you can construct one directly from the SVD output:
+
+```cpp
+Linea::Decompositions::SVD<double> svd(A, Linea::ComputeMode::Thin);
+const auto& U  = svd.U();
+const auto& V  = svd.V();
+const auto& sv = svd.singularValues();
+
+// Best rank-1 approximation: σ₁ · u₁ · v₁ᵀ
+// Extract column 0 of U and V, multiply by sv[0]
+```
+</Accordion>

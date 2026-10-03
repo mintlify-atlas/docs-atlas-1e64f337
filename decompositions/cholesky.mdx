@@ -1,0 +1,154 @@
+---
+title: "Cholesky LLᵀ Factorization for SPD Matrices in Linea"
+sidebarTitle: "Cholesky"
+description: "Linea::Decompositions::Cholesky<C> computes A=LLᵀ for symmetric positive-definite matrices, supporting linear system solve and least-squares."
+---
+
+Cholesky factorization decomposes a symmetric positive-definite (SPD) matrix **A** into a product **A = L Lᵀ**, where **L** is a lower-triangular matrix with strictly positive diagonal entries. Because it exploits the symmetry and positive-definiteness of **A**, it is roughly twice as fast as a general LU factorization for the same matrix size. Linea's `Cholesky<C>` class computes this factorization immediately on construction and exposes the factor for direct access, system solving, and least-squares problems.
+
+## Namespace and Class
+
+```cpp
+namespace Linea::Decompositions
+
+template <RealType C> class Cholesky
+```
+
+## Factorization
+
+For an n × n symmetric positive-definite matrix **A**:
+
+```text
+A = L Lᵀ
+```
+
+where **L** is n × n lower-triangular with positive diagonal. Time complexity is **O(n³/3)** — half the cost of LU for square matrices.
+
+## Algorithm
+
+The classical left-looking (outer-product) formulation is used:
+
+```text
+L(i,j) = (A(i,j) − Σ_{k<j} L(i,k) L(j,k)) / L(j,j)    for i > j
+
+L(i,i) = sqrt(A(i,i) − Σ_{k<i} L(i,k)²)
+```
+
+Memory is accessed through raw contiguous storage for improved cache locality. No pivoting is performed.
+
+<Note>
+Only the lower-triangular part of **A** is referenced during factorization. The upper triangle may contain arbitrary values and will be ignored entirely.
+</Note>
+
+## Constructor
+
+```cpp
+explicit Cholesky(const Matrix<C>& A)
+```
+
+Factorizes `A` immediately. Two exceptions may be thrown:
+
+- `std::invalid_argument` — if `A` is not square
+- `std::runtime_error` — if a non-positive pivot is encountered, indicating the matrix is not positive-definite
+
+Symmetry is **not** verified; only the lower triangle of **A** is read. If the lower triangle is asymmetric with respect to the upper, results are undefined.
+
+## Accessor
+
+```cpp
+const Matrix<C>& L() const
+```
+
+Returns a const reference to the lower-triangular Cholesky factor. The reference remains valid for the lifetime of the `Cholesky` object.
+
+## Solving Linear Systems
+
+### `solve` — Direct System Solve
+
+```cpp
+Vector<C> solve(const Vector<C>& b) const
+```
+
+Solves **Ax = b** using the stored factorization in two passes:
+
+1. **Forward substitution**: Solve **Ly = b**
+2. **Backward substitution**: Solve **Lᵀx = y**
+
+Time complexity is **O(n²)** — substantially cheaper than the O(n³/3) factorization.
+
+### `least_squares` — Normal Equations Least Squares
+
+```cpp
+static Vector<C> least_squares(const Matrix<C>& A, const Vector<C>& b)
+```
+
+Solves the overdetermined least-squares problem:
+
+```text
+min ‖Ax − b‖₂
+```
+
+by forming and solving the normal equations:
+
+```text
+(AᵀA) x = Aᵀb
+```
+
+Internally computes **AᵀA**, constructs a `Cholesky` decomposition of it, then calls `solve`.
+
+<Warning>
+Normal equations square the condition number: **κ(AᵀA) = κ(A)²**. If **A** is ill-conditioned, the Cholesky factorization of **AᵀA** may fail or produce inaccurate results. Prefer `HouseholderQR::solveLeastSquares` for ill-conditioned matrices — QR does not amplify the condition number.
+</Warning>
+
+## Example
+
+```cpp
+#include <Linea.hpp>
+
+// Symmetric positive-definite matrix
+Linea::Matrix<double> A{{4, 2},
+                        {2, 3}};
+
+// Factorize: throws if not SPD
+Linea::Decompositions::Cholesky<double> chol(A);
+
+// Access the lower factor
+const auto& L = chol.L();
+
+// Solve Ax = b
+Linea::Vector<double> b{8, 7};
+auto x = chol.solve(b);
+
+// Least-squares via normal equations
+Linea::Matrix<double> B{{1, 1},
+                        {2, 1},
+                        {3, 1}};
+Linea::Vector<double> y{2, 4, 5};
+auto ls = Linea::Decompositions::Cholesky<double>::least_squares(B, y);
+```
+
+## Error Handling
+
+<Steps>
+  <Step title="Non-square matrix">
+    Constructing `Cholesky` with a non-square matrix throws `std::invalid_argument("Cholesky requires square matrix")`.
+  </Step>
+  <Step title="Non-positive pivot">
+    If any diagonal pivot `A(i,i) − Σ L(i,k)²` is ≤ 0, the constructor throws `std::runtime_error("Matrix not positive-definite")`. This detects matrices that are not SPD, including indefinite and negative-definite matrices.
+  </Step>
+</Steps>
+
+## When to Use Cholesky
+
+<Tabs>
+  <Tab title="Good fit">
+    - Solving **Ax = b** when **A** is known to be SPD (e.g., covariance matrices, stiffness matrices, Gram matrices of full-rank data)
+    - Least-squares problems where the data matrix **A** is well-conditioned
+    - Gaussian process regression, Kalman filtering, and other applications that naturally produce SPD systems
+  </Tab>
+  <Tab title="Poor fit">
+    - General (non-symmetric) matrices — use `LU<T>` instead
+    - Indefinite or semi-definite matrices — the constructor will throw
+    - Ill-conditioned least-squares problems — use `HouseholderQR<T>::solveLeastSquares`
+  </Tab>
+</Tabs>

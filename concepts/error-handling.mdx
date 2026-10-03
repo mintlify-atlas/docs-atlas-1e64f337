@@ -1,0 +1,171 @@
+---
+title: "Error Handling and Exception Safety in Linea"
+sidebarTitle: "Error Handling"
+description: "What exceptions Linea throws for dimension mismatches, out-of-range access, domain errors, and decomposition failures, and how to handle them."
+---
+
+Linea signals every error condition through the C++ standard library exception hierarchy — no custom base class, no error codes, no sentinel values. This means you can catch Linea errors with the same `catch` clauses you already write for `<stdexcept>`, and exception-safety contracts follow the standard guarantees you already know. The following sections describe each exception type, the exact operations that throw it, and best practices for handling or suppressing checks in performance-critical code.
+
+## Exception Types
+
+All thrown types come from `<stdexcept>`. The table below maps each type to the operations that raise it.
+
+### `std::invalid_argument`
+
+Thrown when a pre-condition on object dimensions or structural requirements is violated.
+
+| Operation | Condition |
+|---|---|
+| `operator+`, `operator-` (Vector or Matrix) | Left-hand and right-hand side sizes differ |
+| `operator*` (Matrix × Matrix) | `A.ncols() != B.nrows()` |
+| `hadamard` / `hadamard_product` | Sizes differ |
+| `dot` | Vector sizes differ |
+| `join` (Vector concatenation) | *(never throws — accepts any two vectors)* |
+| `reshape` (Vector → Matrix) | `rows * cols != v.size()` |
+| `reshape` (Matrix) | `nrow * ncol != original size` |
+| `trace`, `determinant`, `inverse`, `minor`, `cofactor` | Matrix is not square |
+| `Vector3D` construction from `Vector<V>` | `v.size() != 3` |
+| `solve` (linear system) | LHS row count does not match RHS size |
+| `Matrix` initializer-list constructor | Empty outer list, empty inner row, or inconsistent row sizes |
+| `Vector::operator[]` | `index >= size()` |
+
+### `std::out_of_range`
+
+Thrown when an index or sub-region specification falls outside the container bounds.
+
+| Operation | Condition |
+|---|---|
+| `Matrix::operator()(i, j)` | `i >= nrows()` or `j >= ncols()` |
+| `get_row(idx)` | `idx >= nrows()` |
+| `get_column(idx)` | `idx >= ncols()` |
+| `set_row(idx, v)` | `idx >= nrows()` |
+| `set_column(idx, v)` | `idx >= ncols()` |
+| `swap_row(r1, r2)` | `r1 >= nrows()` or `r2 >= nrows()` |
+| `swap_column(c1, c2)` | `c1 >= ncols()` or `c2 >= ncols()` |
+| `block(r, c, nr, nc)` | Sub-block would exceed matrix bounds |
+| `segment(start, length)` | `start + length > size()` |
+
+### `std::domain_error`
+
+Thrown when a mathematical operation receives input outside its valid domain.
+
+| Operation | Condition |
+|---|---|
+| `Matrix::operator/` (element-wise) | Any divisor element is zero |
+| `tan<DomainCheck::Enable>` | Cosine of any element is near zero |
+| `sqrt<DomainCheck::Enable>` | Any element is negative |
+| `log<DomainCheck::Enable>` | Any element is non-positive (≤ 0) |
+| `norm(VectorNorm::P, p)` | `p < 1` |
+| `norm_Lmax` | Vector is empty |
+| `mean()` | Matrix is empty |
+
+### `std::runtime_error`
+
+Thrown when a decomposition or factorisation algorithm detects a numerical failure at runtime.
+
+| Operation | Condition | Message |
+|---|---|---|
+| Cholesky decomposition | A negative pivot is encountered | `"Matrix not positive-definite"` |
+| `inverse()` | Matrix is numerically singular | *(runtime singular detection)* |
+| SVD | Iteration limit exceeded without convergence | `"SVD failed to converge"` |
+
+### `std::logic_error`
+
+Thrown when a method is called in a context that is structurally incorrect for its algorithm, regardless of the data values.
+
+| Operation | Condition |
+|---|---|
+| `HouseholderQR::solve()` | The factored matrix is not square |
+
+---
+
+## Exception Safety Guarantees
+
+Linea follows the **strong exception-safety guarantee** for all constructors: if the constructor throws, no resources are leaked and the object is never partially initialised. For mutating operations (`set_row`, `set_column`, `swap_row`, `swap_column`), exceptions are thrown before any modification to the object, so the source matrix remains unchanged if a bounds check fails.
+
+Operations that return new objects by value (arithmetic, `transpose`, `reshape`, `block`, etc.) compute the result entirely before returning it. If they throw, the calling scope's operands are untouched.
+
+```cpp
+Matrix<double> A(3, 3, 1.0);
+Matrix<double> B(2, 3, 2.0);  // different row count
+
+// A is unmodified if this throws
+try {
+    Matrix<double> C = A + B;  // throws std::invalid_argument
+} catch (const std::invalid_argument& e) {
+    // A still valid, B still valid
+    std::cerr << e.what() << '\n';
+}
+```
+
+---
+
+## Handling Exceptions in Practice
+
+The most common pattern is to catch `std::invalid_argument` for dimension mismatches and `std::runtime_error` for numerical failures from decompositions:
+
+```cpp
+try {
+    auto x = A.solve(b);
+} catch (const std::invalid_argument& e) {
+    // dimension mismatch — A.nrows() != b.size()
+    std::cerr << "Dimension error: " << e.what() << '\n';
+} catch (const std::runtime_error& e) {
+    // singular matrix or decomposition failure
+    std::cerr << "Numerical error: " << e.what() << '\n';
+}
+```
+
+For element-wise transcendental operations, catch `std::domain_error`:
+
+```cpp
+try {
+    auto result = sqrt<DomainCheck::Enable>(v);
+} catch (const std::domain_error& e) {
+    std::cerr << "Domain error: " << e.what() << '\n';
+}
+```
+
+For index-based access where the caller controls the index, prefer a bounds pre-check over catching `std::out_of_range` in a hot loop:
+
+```cpp
+if (i < A.nrows() && j < A.ncols()) {
+    double val = A(i, j);   // safe — no exception possible
+}
+```
+
+---
+
+## `DomainCheck` Policy for Transcendental Functions
+
+The functions `tan`, `sqrt`, and `log` on both `Vector` and `Matrix` accept a `DomainCheck` template parameter that controls whether input validation is performed at runtime:
+
+```cpp
+// DomainCheck::Enable — validates input, throws on invalid values
+template <DomainCheck Check = DomainCheck::Enable, RealType N>
+Vector<N> tan(const Vector<N>&);
+
+template <DomainCheck Check = DomainCheck::Enable, RealType N>
+Vector<N> sqrt(const Vector<N>&);
+
+template <DomainCheck Check = DomainCheck::Enable, RealType N>
+Vector<N> log(const Vector<N>&);
+```
+
+The default is `DomainCheck::Enable`. Passing `DomainCheck::Disable` removes all validation branches from the generated code:
+
+```cpp
+// Validated (default) — may throw std::domain_error
+auto safe_result = sqrt<DomainCheck::Enable>(v);
+
+// Unvalidated — no checks, undefined behaviour for negative input
+auto fast_result = sqrt<DomainCheck::Disable>(v);
+```
+
+<Tip>
+  Use `DomainCheck::Disable` in hot paths where you have already validated input upstream. This eliminates every branch and comparison in the inner loop, which is particularly beneficial when applying `sqrt` or `log` element-wise over large vectors or matrices where input validity is a known structural invariant.
+</Tip>
+
+<Warning>
+  Cholesky decomposition requires its input to be **symmetric positive-definite**. Linea does **not** verify symmetry before factoring — only positive-definiteness is checked via the sign of the pivot during factorisation. Passing a non-symmetric matrix will silently produce incorrect results without raising any exception. Verify symmetry with `Matrix::symmetric()` before calling Cholesky if the provenance of your matrix is uncertain.
+</Warning>

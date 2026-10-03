@@ -1,0 +1,310 @@
+---
+title: "Matrix Arithmetic and Algebraic Operators in Linea"
+sidebarTitle: "Operations"
+description: "Arithmetic operators, matrix multiplication, Hadamard product, scalar multiply, element-wise division, and comparison for Linea::Matrix<M>."
+---
+
+Linea provides a complete suite of algebraic operators for `Matrix<M>` through the `MatrixOperations.hpp` header, which is included automatically via `<Linea.hpp>`. Every arithmetic operation returns a new matrix by value — no in-place mutation occurs. Mixed-type overloads are available for all binary operators: when two matrices of different scalar types are combined, the result's scalar type is the `std::common_type_t` of the two operands, exposed as `Numeric<M, T>`. Dimension mismatches are always caught at runtime and raise `std::invalid_argument`.
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+Linea::Matrix<double> B{{5, 6}, {7, 8}};
+
+auto C = A * B;                       // matrix product → [[19,22],[43,50]]
+auto D = A + B;                       // element-wise add → [[6,8],[10,12]]
+auto E = A.hadamard_product(B);       // element-wise multiply → [[5,12],[21,32]]
+auto F = 2.0 * A;                     // scalar multiply → [[2,4],[6,8]]
+```
+
+---
+
+## Comparison Operators
+
+### `operator==`
+
+Returns `true` if both matrices have equal dimensions and all corresponding elements compare equal. The comparison strategy depends on the scalar type:
+
+- **`IntegralType<M>`** — exact bitwise equality (`data[i] != other.data[i]`).
+- **`RealType<M>`** — tolerance-based equality via `floating_point_equality()`:
+  `|a − b| ≤ ε_abs + ε_rel · max(|a|, |b|)`.
+
+```cpp
+bool operator==(const Matrix<M>& other) const noexcept;
+```
+
+**Complexity:** O(m·n)
+
+### `operator!=`
+
+Defined as `!(A == B)`. Inherits the same comparison semantics.
+
+```cpp
+bool operator!=(const Matrix<M>& other) const noexcept;
+```
+
+<Note>
+  Floating-point equality uses a mixed absolute/relative tolerance check. Two
+  matrices that are analytically equal but differ by rounding accumulated
+  through long computation chains may still compare unequal — prefer
+  `operator==` only for freshly constructed or trivially derived matrices.
+</Note>
+
+---
+
+## Element-Wise Arithmetic
+
+All element-wise binary operators require **identical dimensions** (`nrows()` and `ncols()` must match). They throw `std::invalid_argument` on a mismatch. Each operator runs in **O(m·n)** and allocates a single output matrix.
+
+### Addition
+
+<Accordion title="operator+ — same type">
+
+```cpp
+Matrix<M> operator+(const Matrix<M>& other) const;
+```
+
+Computes `C_{ij} = A_{ij} + B_{ij}`.
+
+**Throws:** `std::invalid_argument` if dimensions differ.
+
+</Accordion>
+
+<Accordion title="operator+ — mixed type">
+
+```cpp
+template <NumericType T>
+Matrix<Numeric<M, T>> operator+(const Matrix<T>& other) const;
+```
+
+Promotes the scalar domain to `Numeric<M, T> = std::common_type_t<M, T>` before computing `C_{ij} = A_{ij} + B_{ij}`.
+
+**Throws:** `std::invalid_argument` if dimensions differ.
+
+```cpp
+Linea::Matrix<int>    A{{1, 2}, {3, 4}};
+Linea::Matrix<double> B{{0.5, 0.5}, {0.5, 0.5}};
+auto C = A + B; // Matrix<double>: [[1.5, 2.5], [3.5, 4.5]]
+```
+
+</Accordion>
+
+### Subtraction
+
+<Accordion title="operator- — same type">
+
+```cpp
+Matrix<M> operator-(const Matrix<M>& other) const;
+```
+
+Computes `C_{ij} = A_{ij} − B_{ij}`.
+
+**Throws:** `std::invalid_argument` if dimensions differ.
+
+</Accordion>
+
+<Accordion title="operator- — mixed type">
+
+```cpp
+template <NumericType T>
+Matrix<Numeric<M, T>> operator-(const Matrix<T>& other) const;
+```
+
+Promotes the scalar domain to `Numeric<M, T>` before computing the subtraction.
+
+**Throws:** `std::invalid_argument` if dimensions differ.
+
+</Accordion>
+
+### Unary Negation
+
+```cpp
+Matrix<M> operator-() const;
+```
+
+Returns a new matrix where every element is negated: `B_{ij} = −A_{ij}`.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1, -2}, {3, -4}};
+auto B = -A; // [[-1, 2], [-3, 4]]
+```
+
+---
+
+## Scalar Multiplication
+
+### Right scalar (member)
+
+```cpp
+template <NumericType S>
+Matrix<Numeric<M, S>> operator*(S scalar) const;
+```
+
+Multiplies every element by `scalar`: `B_{ij} = A_{ij} · s`. The result type is promoted to `Numeric<M, S>`.
+
+**Complexity:** O(m·n)
+
+### Left scalar (free function)
+
+```cpp
+template <NumericType S, NumericType M>
+Matrix<Numeric<M, S>> operator*(S scalar, const Matrix<M>& matrix);
+```
+
+Commutative form — delegates to the member right-scalar operator. Both forms produce identical results.
+
+```cpp
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+auto B = A * 3.0;   // right scalar
+auto C = 3.0 * A;   // left scalar — identical to B
+```
+
+---
+
+## Matrix Multiplication
+
+### `operator*(const Matrix<M>&)` — standard product
+
+Computes the standard matrix product `C = AB` where `A ∈ 𝔽^{m×n}`, `B ∈ 𝔽^{n×p}`, and `C ∈ 𝔽^{m×p}`:
+
+```text
+C_{ij} = sum_{k=0}^{n-1} A_{ik} * B_{kj}
+```
+
+```cpp
+Matrix<M> operator*(const Matrix<M>& other) const;
+```
+
+**Throws:** `std::invalid_argument` if `ncols() != other.nrows()`.  
+**Complexity:** O(m·n·p)
+
+### Mixed-type overload
+
+```cpp
+template <NumericType T>
+Matrix<Numeric<M, T>> operator*(const Matrix<T>& other) const;
+```
+
+Same algorithm, result type promoted to `Numeric<M, T>`.
+
+```cpp
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+Linea::Matrix<double> B{{5, 6}, {7, 8}};
+auto C = A * B;
+// C = [[1*5 + 2*7, 1*6 + 2*8],   →   [[19, 22],
+//       [3*5 + 4*7, 3*6 + 4*8]]       [43, 50]]
+```
+
+<Note>
+  `operator*` between two matrices computes the **matrix product** (dot-product
+  of rows into columns), **not** element-wise multiplication. For element-wise
+  multiplication, use `hadamard_product()`.
+</Note>
+
+---
+
+## Hadamard Product
+
+The Hadamard (element-wise) product computes `C_{ij} = A_{ij} · B_{ij}` for matrices of **identical dimensions**.
+
+### Same type
+
+```cpp
+Matrix<M> hadamard_product(const Matrix<M>& other) const;
+```
+
+**Throws:** `std::invalid_argument` if dimensions differ.  
+**Complexity:** O(m·n)
+
+### Mixed type
+
+```cpp
+template <NumericType T>
+Matrix<Numeric<T, M>> hadamard_product(const Matrix<T>& other) const;
+```
+
+Promotes the result type to `Numeric<T, M>`.
+
+```cpp
+Linea::Matrix<double> A{{1, 2}, {3, 4}};
+Linea::Matrix<double> B{{5, 6}, {7, 8}};
+auto H = A.hadamard_product(B); // [[5,12],[21,32]]
+```
+
+---
+
+## Element-Wise Division
+
+`operator/` computes `C_{ij} = A_{ij} / B_{ij}` for matrices of **identical dimensions**.
+
+### Same type
+
+```cpp
+Matrix<M> operator/(const Matrix<M>& other) const;
+```
+
+**Throws:**
+- `std::invalid_argument` — dimensions differ
+- `std::domain_error` — any element of `other` equals `M{0}`
+
+**Complexity:** O(m·n)
+
+### Mixed type
+
+```cpp
+template <NumericType T>
+Matrix<Numeric<T, M>> operator/(const Matrix<T>& other) const;
+```
+
+Zero check is performed against `T{0}`.
+
+```cpp
+Linea::Matrix<double> A{{10, 20}, {30, 40}};
+Linea::Matrix<double> B{{ 2,  4}, { 5,  8}};
+auto C = A / B; // [[5, 5], [6, 5]]
+```
+
+<Warning>
+  `operator/` checks every divisor element against zero before performing any
+  division. A zero anywhere in `B` throws `std::domain_error` — the entire
+  operation is aborted. No partial output is produced.
+</Warning>
+
+---
+
+## Mixed-Type Arithmetic Summary
+
+All heterogeneous binary operators resolve the result scalar type through:
+
+```cpp
+template <NumericType T, NumericType S>
+using Numeric = std::common_type_t<T, S>;
+```
+
+This means `int + double → double`, `float * double → double`, and so on, following standard C++ arithmetic promotion rules. No explicit casting is needed at the call site.
+
+<Tabs>
+  <Tab title="int + double">
+    ```cpp
+    Linea::Matrix<int>    A{{1, 2}, {3, 4}};
+    Linea::Matrix<double> B{{0.1, 0.2}, {0.3, 0.4}};
+    auto C = A + B; // Matrix<double>
+    ```
+  </Tab>
+  <Tab title="float * double">
+    ```cpp
+    Linea::Matrix<float>  A{{1.0f, 2.0f}, {3.0f, 4.0f}};
+    Linea::Matrix<double> B{{1.5, 2.5},   {3.5, 4.5}};
+    auto C = A * B; // Matrix<double>, matrix product
+    ```
+  </Tab>
+  <Tab title="int scalar">
+    ```cpp
+    Linea::Matrix<int> A{{1, 2}, {3, 4}};
+    auto B = A * 2.5; // Matrix<double> — scalar promotes the type
+    ```
+  </Tab>
+</Tabs>

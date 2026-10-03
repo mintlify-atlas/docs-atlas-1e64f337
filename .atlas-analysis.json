@@ -1,0 +1,109 @@
+{
+  "projectType": "sdk-library",
+  "projectName": "Linea",
+  "projectDescription": "A header-only, template-based C++20 linear algebra engine providing dense vectors, matrices, and numerical decompositions with compile-time type safety via concepts.",
+  "theme": "luma",
+  "primaryColor": "#4F6AF0",
+  "lightColor": "#EEF1FD",
+  "darkColor": "#1A2060",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts/type-system",
+              "concepts/memory-model",
+              "concepts/error-handling"
+            ]
+          },
+          {
+            "group": "Vectors",
+            "pages": [
+              "vectors/vector",
+              "vectors/vector3d",
+              "vectors/operations",
+              "vectors/math-functions"
+            ]
+          },
+          {
+            "group": "Matrices",
+            "pages": [
+              "matrices/matrix",
+              "matrices/operations",
+              "matrices/math-functions",
+              "matrices/utilities"
+            ]
+          },
+          {
+            "group": "Decompositions",
+            "pages": [
+              "decompositions/lu",
+              "decompositions/cholesky",
+              "decompositions/qr",
+              "decompositions/svd"
+            ]
+          },
+          {
+            "group": "I/O",
+            "pages": [
+              "io/stream-output"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Header-only — include a single file and start using",
+    "C++20 concepts enforce NumericType, RealType, and IntegralType at compile time",
+    "Dense Vector<V> with L1/L2/L∞/Lp norms, dot product, outer product, and reshape",
+    "Fixed-size Vector3D<T> with cross product, scalar triple product, and vector triple product",
+    "Dense Matrix<M> with row-major storage, arithmetic operators, and statistical reductions",
+    "LU decomposition with partial pivoting (PA = LU) for determinant, rank, inverse, and solve",
+    "Cholesky factorization (A = LLᵀ) for SPD matrices and least-squares via normal equations",
+    "Householder QR factorization (A = QR) for least-squares and rank detection",
+    "Singular Value Decomposition (A = UΣVᵀ) with Golub–Kahan iteration, pseudoinverse, and condition number",
+    "Mixed-type arithmetic via Numeric<T,S> = std::common_type_t promotion",
+    "Configurable I/O formatting for matrices and vectors via MatrixFormat / VectorFormat",
+    "Compile-time domain-check policy (DomainCheck::Enable / Disable) for transcendental functions",
+    "RESTRICT-qualified raw pointer loops for SIMD-friendly performance",
+    "Cross-compiler portability macros (GCC, Clang, MSVC)"
+  ],
+  "publicApiSurface": [
+    "Linea::Vector<V>",
+    "Linea::Vector3D<T>",
+    "Linea::Matrix<M>",
+    "Linea::Decompositions::LU<T>",
+    "Linea::Decompositions::Cholesky<C>",
+    "Linea::Decompositions::HouseholderQR<T>",
+    "Linea::Decompositions::SVD<Tp>",
+    "Linea::IO::display(ostream, Matrix, MatrixFormat)",
+    "Linea::IO::display(ostream, Vector, VectorFormat)",
+    "Linea::IO::MatrixFormat",
+    "Linea::IO::VectorFormat",
+    "Linea::NumericType (concept)",
+    "Linea::RealType (concept)",
+    "Linea::IntegralType (concept)",
+    "Linea::Numeric<T,S> (type alias)",
+    "Linea::MatrixNorm (enum)",
+    "Linea::VectorNorm (enum)",
+    "Linea::ComputeMode (enum)",
+    "Linea::DomainCheck (enum)",
+    "Linea::Diagonal (enum)",
+    "Linea::sin / cos / tan / sqrt / log / exp (element-wise free functions)",
+    "Linea::pow (element-wise for Matrix)",
+    "Linea::distance(Vector, Vector)",
+    "Linea::angle(Vector, Vector)"
+  ]
+}

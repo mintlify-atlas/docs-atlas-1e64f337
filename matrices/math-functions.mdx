@@ -1,0 +1,288 @@
+---
+title: "Element-Wise Math Functions for Linea Matrices"
+sidebarTitle: "Math Functions"
+description: "Free functions sin, cos, tan, sqrt, log, exp, and pow applied element-wise to Linea::Matrix<M> with compile-time DomainCheck control."
+---
+
+`MatrixMath.hpp` provides free functions that apply standard scalar mathematical transformations to every element of a `Matrix<N>` independently. All functions live in the `Linea` namespace, require `RealType<N>` (except the integer-exponent overload of `pow`), and run in O(m·n) with a single output allocation and contiguous row-major traversal. These are **component-wise** operations — they are not matrix functions in the operator-theoretic sense.
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{1.0, 4.0, 9.0},
+                         {16.0, 25.0, 36.0}};
+
+auto S = Linea::sqrt<Linea::DomainCheck::Enable>(A); // [[1,2,3],[4,5,6]]
+auto E = Linea::exp(A);                               // e^{a_ij} for each element
+```
+
+---
+
+## Conceptual Distinction: Element-Wise vs. Matrix Functions
+
+<Note>
+  These functions apply the scalar function **element-by-element**. They are
+  **not** matrix functions in the linear-algebra sense.
+
+  For example, `Linea::exp(A)` computes `B_{ij} = e^{A_{ij}}` — the
+  element-wise exponential. This is **not** the matrix exponential `e^A`, which
+  requires a matrix series or eigendecomposition and produces an entirely
+  different result.
+</Note>
+
+---
+
+## DomainCheck Policy
+
+Several functions have restricted scalar domains (e.g., `sqrt` requires non-negative inputs). These accept a compile-time policy template parameter:
+
+```cpp
+enum class DomainCheck {
+    Enable,   // runtime validation, throws std::domain_error on violation
+    Disable   // no validation, maximum performance
+};
+```
+
+Pass the policy as an explicit template argument:
+
+```cpp
+// Validated — throws on negative elements
+auto S = Linea::sqrt<Linea::DomainCheck::Enable>(A);
+
+// Unchecked — no overhead, undefined for negative elements
+auto S = Linea::sqrt<Linea::DomainCheck::Disable>(A);
+```
+
+<Warning>
+  Using `DomainCheck::Disable` bypasses all runtime validation. If the input
+  contains values outside the function's domain (e.g., negative values passed
+  to `sqrt`, or zeros to `log`), the result follows the behaviour of the
+  underlying C++ standard library implementation — which typically produces
+  `NaN`, `-inf`, or other unspecified floating-point values without raising an
+  exception.
+</Warning>
+
+---
+
+## Functions Without Domain Restriction
+
+These functions are defined for all real numbers and do not take a `DomainCheck` parameter.
+
+### `sin`
+
+```cpp
+template <RealType N>
+Matrix<N> sin(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = sin(A_{ij})` for each element.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{0.0, 1.5707963}};  // [0, π/2]
+auto B = Linea::sin(A);                      // [0.0, 1.0]
+```
+
+---
+
+### `cos`
+
+```cpp
+template <RealType N>
+Matrix<N> cos(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = cos(A_{ij})` for each element.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{0.0, 3.14159265}};
+auto B = Linea::cos(A);                      // [1.0, -1.0]
+```
+
+---
+
+### `exp`
+
+```cpp
+template <RealType N>
+Matrix<N> exp(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = e^{A_{ij}}` for each element.
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{0.0, 1.0, 2.0}};
+auto B = Linea::exp(A); // [1.0, 2.71828..., 7.38905...]
+```
+
+---
+
+## Functions With DomainCheck Policy
+
+These functions may produce mathematically undefined results for certain inputs. The `DomainCheck` template parameter controls whether runtime validation is performed.
+
+### `tan`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Matrix<N> tan(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = tan(A_{ij})`. The tangent is undefined where `cos(A_{ij}) = 0` (i.e., at odd multiples of π/2).
+
+**Domain check (when `Enable`):** throws `std::domain_error` if `|cos(A_{ij})| < 1e-12` for any element.
+
+<ParamField path="Check" type="DomainCheck" required>
+  `DomainCheck::Enable` to validate inputs, `DomainCheck::Disable` to skip.
+</ParamField>
+<ParamField path="matrix" type="const Matrix<N>&" required>
+  Input matrix with `RealType` scalar.
+</ParamField>
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{0.0, 0.7853982}}; // [0, π/4]
+auto B = Linea::tan<Linea::DomainCheck::Enable>(A); // [0.0, 1.0]
+```
+
+---
+
+### `sqrt`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Matrix<N> sqrt(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = √A_{ij}`. The square root is undefined for negative reals.
+
+**Domain check (when `Enable`):** throws `std::domain_error` if `A_{ij} < 0` for any element.
+
+<ParamField path="Check" type="DomainCheck" required>
+  `DomainCheck::Enable` to validate inputs, `DomainCheck::Disable` to skip.
+</ParamField>
+<ParamField path="matrix" type="const Matrix<N>&" required>
+  Input matrix with non-negative elements (when checking is enabled).
+</ParamField>
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1.0, 4.0, 9.0},
+                         {16.0, 25.0, 36.0}};
+auto B = Linea::sqrt<Linea::DomainCheck::Enable>(A);
+// B = [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]]
+```
+
+---
+
+### `log`
+
+```cpp
+template <DomainCheck Check, RealType N>
+Matrix<N> log(const Matrix<N>& matrix);
+```
+
+Computes `B_{ij} = ln(A_{ij})` (natural logarithm). The logarithm is undefined for non-positive reals.
+
+**Domain check (when `Enable`):** throws `std::domain_error` if `A_{ij} <= 0` for any element.
+
+<ParamField path="Check" type="DomainCheck" required>
+  `DomainCheck::Enable` to validate inputs, `DomainCheck::Disable` to skip.
+</ParamField>
+<ParamField path="matrix" type="const Matrix<N>&" required>
+  Input matrix with strictly positive elements (when checking is enabled).
+</ParamField>
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1.0, 2.718281828}};
+auto B = Linea::log<Linea::DomainCheck::Enable>(A); // [0.0, 1.0]
+```
+
+---
+
+## Power Functions
+
+Two overloads of `pow` handle the distinct cases of integer and real exponents.
+
+### Integer exponent (IntegralType matrix)
+
+```cpp
+template <IntegralType U>
+Matrix<U> pow(const Matrix<U>& matrix, int exponent);
+```
+
+Raises each element to a non-negative integer power using exponentiation by squaring: `B_{ij} = A_{ij}^k`.
+
+<ParamField path="matrix" type="const Matrix<U>&" required>
+  Input matrix with integral scalar type.
+</ParamField>
+<ParamField path="exponent" type="int" required>
+  Non-negative integer exponent. A value of `0` returns an all-ones matrix.
+</ParamField>
+
+**Throws:** `std::invalid_argument` if `exponent < 0`.  
+**Complexity:** O(m·n · log k)
+
+```cpp
+Linea::Matrix<int> A{{2, 3}, {4, 5}};
+auto B = Linea::pow(A, 3); // [[8, 27], [64, 125]]
+```
+
+### Real exponent (RealType matrix)
+
+```cpp
+template <RealType U>
+Matrix<U> pow(const Matrix<U>& matrix, U exponent);
+```
+
+Raises each element to a real-valued power via `std::pow`: `B_{ij} = A_{ij}^α`.
+
+<ParamField path="matrix" type="const Matrix<U>&" required>
+  Input matrix with real scalar type.
+</ParamField>
+<ParamField path="exponent" type="U" required>
+  Real-valued exponent applied uniformly to all elements.
+</ParamField>
+
+**Complexity:** O(m·n)
+
+```cpp
+Linea::Matrix<double> A{{1.0, 4.0}, {9.0, 16.0}};
+auto B = Linea::pow(A, 0.5); // [[1.0, 2.0], [3.0, 4.0]] — same as sqrt
+```
+
+<Note>
+  For the real `pow` overload, behaviour for negative bases with non-integer
+  exponents follows `std::pow` — which typically returns `NaN`. If domain safety
+  matters, validate inputs before calling.
+</Note>
+
+---
+
+## Performance Characteristics
+
+All element-wise functions share the same computational profile:
+
+| Property | Value |
+|---|---|
+| Time complexity | O(m·n) |
+| Space complexity | O(m·n) — one output allocation |
+| Memory access pattern | Sequential row-major traversal |
+| Intermediate temporaries | None |
+| SIMD compatibility | Yes — contiguous linear layout |
+
+<Tip>
+  Because all functions traverse elements sequentially in row-major order with
+  no branching (when `DomainCheck::Disable` is used), auto-vectorization is
+  straightforward. If you have verified your inputs offline, prefer
+  `DomainCheck::Disable` in hot paths.
+</Tip>

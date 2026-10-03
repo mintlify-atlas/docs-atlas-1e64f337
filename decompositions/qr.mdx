@@ -1,0 +1,159 @@
+---
+title: "Householder QR Factorization for Least Squares in Linea"
+sidebarTitle: "QR"
+description: "Linea::Decompositions::HouseholderQR<T> computes A=QR using Householder reflections for numerically stable least-squares and rank detection."
+---
+
+Householder QR factorization decomposes an m × n matrix **A** into an orthogonal factor **Q** and an upper-triangular factor **R** such that **A = QR**. Linea's `HouseholderQR<T>` uses a sequence of Householder reflections applied in-place, storing the reflectors compactly inside the modified matrix. This approach is backward stable and makes QR the preferred method for least-squares problems, particularly when the matrix is ill-conditioned.
+
+## Namespace and Class
+
+```cpp
+namespace Linea::Decompositions
+
+template <RealType T> class HouseholderQR
+```
+
+## Factorization
+
+For an m × n matrix **A** (m ≥ n):
+
+```text
+A = Q R
+```
+
+where:
+- **Q** is orthogonal (QᵀQ = I): m × m full or m × rank thin
+- **R** is upper-triangular: m × n full or rank × n thin
+
+Time complexity is **O(2mn² − 2n³/3)**.
+
+## Algorithm
+
+At each step k, a Householder reflector is constructed:
+
+```text
+H_k = I − β_k v_k v_kᵀ
+```
+
+chosen so that it annihilates all entries below the diagonal in column k. The reflectors are applied in-place: the lower-triangular portion of the internal `QR_` matrix stores the reflector vectors, and the scalar coefficients β_k are stored separately in `betas_`. The upper-triangular portion accumulates **R**. **Q** is never stored explicitly during factorization — it is reconstructed from the reflectors on demand by calling `Q()`.
+
+<Note>
+Because **Q** is not stored during factorization, memory usage is O(mn) regardless of whether you need the full or thin **Q**. Calling `Q()` triggers an explicit reconstruction by applying the stored reflectors to an identity matrix.
+</Note>
+
+## Rank Detection
+
+During factorization, the 2-norm of each incoming column is computed. If it falls below:
+
+```text
+tol = ε · max(m, n)
+```
+
+(where ε is `std::numeric_limits<T>::epsilon()`), the column is treated as linearly dependent and the rank counter is not incremented. No column pivoting is performed.
+
+## Constructor
+
+```cpp
+explicit HouseholderQR(const Matrix<T>& A)
+```
+
+Factorizes `A` immediately, computing rank, reflectors, and the upper-triangular **R** in one pass.
+
+## Accessors
+
+| Method | Signature | Description |
+|---|---|---|
+| `rank()` | `std::size_t rank() const noexcept` | Numerical rank detected during factorization |
+| `R(mode)` | `Matrix<T> R(ComputeMode mode = ComputeMode::Thin) const` | Upper-triangular factor |
+| `Q(mode)` | `Matrix<T> Q(ComputeMode mode = ComputeMode::Thin) const` | Orthogonal factor, built from stored reflectors |
+
+### `ComputeMode` for R and Q
+
+| Mode | `R` shape | `Q` shape |
+|---|---|---|
+| `ComputeMode::Thin` | rank × n | m × rank |
+| `ComputeMode::Full` | m × n | m × m |
+
+The full **Q** spans the complete column space of ℝᵐ, including the null space of **A**. The thin **Q** contains only the columns corresponding to non-zero pivots.
+
+## Solvers
+
+### `solve` — Square Full-Rank Systems
+
+```cpp
+Vector<T> solve(const Vector<T>& b) const
+```
+
+Solves **Ax = b** when **A** is square and full-rank, using:
+
+1. Apply Qᵀ to **b**: `y = Qᵀb` (implicit, O(mn))
+2. Back-substitution on **Rx = y** (O(n²))
+
+Throws `std::logic_error` if **A** is not square, and `std::runtime_error` if it is rank-deficient.
+
+### `solveLeastSquares` — Overdetermined Systems
+
+```cpp
+Vector<T> solveLeastSquares(const Vector<T>& b) const
+```
+
+Solves the minimum-norm problem:
+
+```text
+min ‖Ax − b‖₂
+```
+
+for rectangular m ≥ n matrices. Algorithm:
+
+1. Apply Qᵀ implicitly to **b** using the stored reflectors: `y = Qᵀb`
+2. Back-substitution on the leading rank × rank block of **R**: `Rx = y[0:rank]`
+
+Time complexity is **O(mn + n²)**. Throws `std::invalid_argument` if `b.size() != m`.
+
+<Tip>
+Prefer `solveLeastSquares` over `Cholesky::least_squares` for ill-conditioned problems. QR operates directly on **A** and does not square the condition number — Cholesky on the normal equations sees κ(AᵀA) = κ(A)², which can render the factorization numerically useless.
+</Tip>
+
+## Example
+
+```cpp
+#include <Linea.hpp>
+
+Linea::Matrix<double> A{{1, 2, 3},
+                        {4, 5, 6},
+                        {7, 8, 9},
+                        {1, 1, 1}};
+
+Linea::Decompositions::HouseholderQR<double> qr(A);
+
+// Thin factors (default)
+auto Q_thin = qr.Q(Linea::ComputeMode::Thin); // 4 × rank
+auto R_thin = qr.R(Linea::ComputeMode::Thin); // rank × 3
+
+// Full factors
+auto Q_full = qr.Q(Linea::ComputeMode::Full); // 4 × 4
+auto R_full = qr.R(Linea::ComputeMode::Full); // 4 × 3
+
+// Numerical rank (A above is rank-deficient — rank 2)
+std::size_t rank = qr.rank();
+
+// Least-squares solution
+Linea::Vector<double> b{1, 2, 3, 4};
+auto x = qr.solveLeastSquares(b);
+```
+
+## Choosing Between Thin and Full
+
+<Tabs>
+  <Tab title="Thin (default)">
+    Returns economy-size factors. `Q` has shape m × rank and `R` has shape rank × n. This is the most memory-efficient choice and sufficient for solving least-squares problems and working within the column space of **A**.
+  </Tab>
+  <Tab title="Full">
+    Returns complete orthogonal bases. `Q` has shape m × m (a full orthogonal matrix) and `R` has shape m × n (padded with zero rows). Use the full form when you need a basis for the left null space of **A** (the rows of **Q** beyond column `rank`).
+  </Tab>
+</Tabs>
+
+## Numerical Stability
+
+`HouseholderQR` is backward stable: the computed factors satisfy **Q̃R̃ = A + δA** where ‖δA‖ is bounded by a small multiple of machine epsilon times ‖A‖. This makes QR suitable for solving ill-conditioned least-squares problems where direct normal equations would amplify errors.

@@ -27,7 +27,7 @@ Linea's architecture is guided by four principles, all sourced directly from the
 - **Header-only implementation** — the entire engine lives in `include/`. There is nothing to compile separately.
 - **Compile-time safety via concepts** — every container template (`Vector<V>`, `Matrix<M>`) requires its scalar type to satisfy `NumericType`, which constrains to arithmetic integers and floating-point types while explicitly excluding `bool`, `char`, and all character-encoding types.
 - **Zero-overhead abstractions** — contiguous `std::vector<T>` storage, no hidden heap allocations beyond the container itself, raw pointer access via `.raw()`, and RESTRICT-annotated inner loops for SIMD-friendly code generation.
-- **High-performance numerical kernels** — O(n³/2 · 2/3) LU factorization with partial pivoting, O(n) norm and dot-product kernels, thread-local RNG for lock-free random matrix and vector construction.
+- **High-performance numerical kernels** — O(2n³/3) LU factorization with partial pivoting, O(n) norm and dot-product kernels, thread-local RNG for lock-free random matrix and vector construction.
 
 ## Compiler Requirements
 

@@ -1,7 +1,7 @@
 ---
-title: "Matrix<M>: Dense Row-Major Matrix in Linea"
+title: "Linea::Matrix<M> — Dense Row-Major Matrix Container"
 sidebarTitle: "Matrix"
-description: "Complete reference for Linea::Matrix<M> — constructors, static factories, element access, row/column manipulation, concatenation, and statistical reductions."
+description: "Full reference for Linea::Matrix<M>: constructors, static factories, element access, row/column manipulation, concatenation, and statistical reductions."
 ---
 
 `Linea::Matrix<M>` is the core dense matrix container in the Linea library. It models a finite-dimensional rectangular array over a numeric scalar field, stored contiguously in row-major order using a `std::vector<M>` as its backing buffer. The element at row `i`, column `j` maps to `data[i * ncols + j]`, giving cache-friendly traversal along rows and direct SIMD-compatible access through `raw()`. The scalar type `M` must satisfy the `NumericType` concept, which is the union of `IntegralType` and `RealType`; certain higher-level operations further narrow this to one of the two subconcepts.
@@ -41,23 +41,23 @@ class Matrix;
 
 ## Constructors
 
-<Accordion title="Matrix(size_t row, size_t col) — zero-initialized">
+<Accordion title="Matrix(size_t row, size_t column) — zero-initialized">
 
-Allocates an `row × col` matrix and value-initializes every element to `M{}` (zero for numeric types).
+Allocates a `row × column` matrix and value-initializes every element to `M{}` (zero for numeric types).
 
 ```cpp
 template <NumericType M>
-Matrix(std::size_t row, std::size_t col);
+Matrix(std::size_t row, std::size_t column);
 ```
 
 <ParamField path="row" type="size_t" required>
   Number of rows.
 </ParamField>
-<ParamField path="col" type="size_t" required>
+<ParamField path="column" type="size_t" required>
   Number of columns.
 </ParamField>
 
-**Complexity:** O(row · col)
+**Complexity:** O(row · column)
 
 ```cpp
 Linea::Matrix<int> Z(3, 3); // 3×3 integer matrix, all zeros
@@ -65,26 +65,26 @@ Linea::Matrix<int> Z(3, 3); // 3×3 integer matrix, all zeros
 
 </Accordion>
 
-<Accordion title="Matrix(size_t row, size_t col, M value) — constant fill">
+<Accordion title="Matrix(size_t row, size_t column, M value) — constant fill">
 
-Constructs an `row × col` matrix where every element is set to `value`: `A_{ij} = value`.
+Constructs a `row × column` matrix where every element is set to `value`: `A_{ij} = value`.
 
 ```cpp
 template <NumericType M>
-Matrix(std::size_t row, std::size_t col, M value);
+Matrix(std::size_t row, std::size_t column, M value);
 ```
 
 <ParamField path="row" type="size_t" required>
   Number of rows.
 </ParamField>
-<ParamField path="col" type="size_t" required>
+<ParamField path="column" type="size_t" required>
   Number of columns.
 </ParamField>
 <ParamField path="value" type="M" required>
   Constant fill value applied to every element.
 </ParamField>
 
-**Complexity:** O(row · col)
+**Complexity:** O(row · column)
 
 ```cpp
 Linea::Matrix<double> F(2, 4, 3.14); // every element is 3.14
@@ -199,21 +199,22 @@ auto O = Linea::Matrix<double>::ones(2, 6);
 
 </Accordion>
 
-<Accordion title="Matrix<M>::random(size_t r, size_t c, M min, M max) — uniform random">
+<Accordion title="Matrix<M>::random(size_t row, size_t column, M min_range, M max_range) — uniform random">
 
-Fills an `r × c` matrix with values drawn uniformly from `[min, max]`.
+Fills a `row × column` matrix with values drawn uniformly from `[min_range, max_range]`.
 
 - Uses `std::uniform_int_distribution<M>` for `IntegralType`.
 - Uses `std::uniform_real_distribution<M>` for `RealType`.
 
 ```cpp
-static Matrix<M> random(std::size_t r, std::size_t c, M min, M max);
+static Matrix<M> random(std::size_t row, std::size_t column,
+                         M min_range, M max_range);
 ```
 
-<ParamField path="r" type="size_t" required>Row count.</ParamField>
-<ParamField path="c" type="size_t" required>Column count.</ParamField>
-<ParamField path="min" type="M" required>Lower bound (inclusive).</ParamField>
-<ParamField path="max" type="M" required>Upper bound (inclusive for integral, exclusive for real).</ParamField>
+<ParamField path="row" type="size_t" required>Row count.</ParamField>
+<ParamField path="column" type="size_t" required>Column count.</ParamField>
+<ParamField path="min_range" type="M" required>Lower bound (inclusive).</ParamField>
+<ParamField path="max_range" type="M" required>Upper bound (inclusive for integral, exclusive for real).</ParamField>
 
 **Thread safety:** Uses a `thread_local` Mersenne-Twister engine — safe for concurrent calls from different threads, but results are non-deterministic across runs.
 

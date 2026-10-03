@@ -1,7 +1,7 @@
 ---
 title: "Singular Value Decomposition with Golub–Kahan in Linea"
 sidebarTitle: "SVD"
-description: "Linea::Decompositions::SVD<Tp> computes A=UΣVᵀ via Householder bidiagonalization and Golub–Kahan iteration, with pseudoinverse and condition number."
+description: "Linea::Decompositions::SVD<Tp> factors A=UΣVᵀ via Householder bidiagonalization and Golub–Kahan QR, with rank, condition number, and pseudoinverse."
 ---
 
 Singular Value Decomposition (SVD) factors any real matrix **A** into **A = U Σ Vᵀ**, where **U** and **V** are orthogonal matrices and **Σ** is a diagonal matrix of non-negative singular values in descending order. Linea's `SVD<Tp>` uses a two-stage algorithm — Householder bidiagonalization followed by Golub–Kahan implicit QR iteration — and provides the pseudoinverse, numerical rank, and condition number directly from the computed singular values.
@@ -47,9 +47,9 @@ The decomposition runs in three stages:
 
 ```cpp
 SVD(const Matrix<Tp>& A,
-    ComputeMode mode    = ComputeMode::Thin,
-    Tp eps              = Tp(1e-12),
-    size_t maxIters     = 1000)
+    ComputeMode mode        = ComputeMode::Thin,
+    Tp eps                  = Tp(1e-12),
+    std::size_t maxIters    = 1000)
 ```
 
 All four stages run immediately on construction. Parameters:
@@ -58,7 +58,7 @@ All four stages run immediately on construction. Parameters:
 |---|---|---|
 | `A` | — | Input matrix to decompose |
 | `mode` | `ComputeMode::Thin` | Thin or Full decomposition |
-| `eps` | `1e-12` | Convergence tolerance for QR iteration; also used as the default threshold for rank, condition number, and pseudoinverse |
+| `eps` | `Tp(1e-12)` | Convergence tolerance for QR iteration; also used as the default threshold for `rank()`, `condition_number()`, and `pseudoinverse()` |
 | `maxIters` | `1000` | Maximum number of QR iteration sweeps |
 
 <Warning>
@@ -77,7 +77,7 @@ If the Golub–Kahan QR iteration does not converge within `maxIters` sweeps, th
 | `pseudoinverse(eps)` | `Matrix<Tp> pseudoinverse(Tp eps = Tp(1e-12)) const` | Moore–Penrose pseudoinverse, n × m |
 
 <Note>
-Singular values are always sorted in descending order and guaranteed to be non-negative after construction. The post-processing stage flips any negative values and reorders everything before the constructor returns.
+`singularValues()`, `U()`, and `V()` all return const references to internally stored objects. Singular values are always sorted in descending order and guaranteed to be non-negative after construction.
 </Note>
 
 ## `ComputeMode`: Thin vs Full
@@ -104,13 +104,13 @@ Linea::Decompositions::SVD<double> svd(A, Linea::ComputeMode::Thin);
 // Singular values (sorted descending), size k = min(3,2) = 2
 const auto& sv = svd.singularValues();
 
-// Thin factors
+// Thin factors (const references)
 const auto& U = svd.U(); // 3×2
 const auto& V = svd.V(); // 2×2
 
-// Derived quantities
+// Derived quantities (return type matches Tp — here double)
 std::size_t r  = svd.rank();             // number of σᵢ above threshold
-double kappa   = svd.condition_number(); // σ_max / σ_min
+double      kappa = svd.condition_number(); // σ_max / σ_min
 
 // Moore–Penrose pseudoinverse: A⁺ = V Σ⁺ Uᵀ, shape 2×3
 auto Aplus = svd.pseudoinverse();
@@ -130,10 +130,10 @@ SVD-based rank is more reliable than rank from LU or QR without column pivoting,
 </Accordion>
 
 <Accordion title="Condition Number">
-`condition_number(eps)` returns σ_max / σ_min over singular values that exceed `eps`. Singular values below `eps` are excluded to avoid dividing by noise.
+`condition_number(eps)` returns σ_max / σ_min over singular values that exceed `eps`. Singular values at or below `eps` are excluded to avoid dividing by noise. The return type is `Tp` (the same scalar type as the matrix).
 
 ```cpp
-double kappa = svd.condition_number(); // ∞ if rank-deficient
+double kappa = svd.condition_number(); // returns Tp; ∞ if rank-deficient
 ```
 
 A large condition number (e.g., > 10⁸ for `double`) indicates that **A** is ill-conditioned: small perturbations in **b** can cause large changes in the solution of **Ax = b**.
@@ -143,7 +143,7 @@ A large condition number (e.g., > 10⁸ for `double`) indicates that **A** is il
 `pseudoinverse(eps)` computes **A⁺ = V Σ⁺ Uᵀ**, where reciprocals are taken only for singular values satisfying σᵢ > eps · σ_max. The result is an n × m matrix.
 
 ```cpp
-// Default threshold eps = 1e-12
+// Default threshold eps = Tp(1e-12)
 auto Aplus = svd.pseudoinverse();
 
 // Stricter truncation: treat σ < 1e-8 · σ_max as zero

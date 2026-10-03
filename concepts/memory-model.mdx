@@ -1,5 +1,5 @@
 ---
-title: "Linea Memory Layout and Storage Model"
+title: "Linea Memory Model: Contiguous Layout and Raw Access"
 sidebarTitle: "Memory Model"
 description: "How Linea stores vectors and matrices in contiguous memory, including the row-major layout, raw pointer access, and SIMD-friendly design."
 ---
@@ -135,9 +135,16 @@ auto it = std::max_element(storage.begin(), storage.end());
 
 ### Iterators
 
-Both `Vector` and `Matrix` expose the full set of STL iterator types derived directly from `std::vector`:
+Both `Vector` and `Matrix` expose the full set of STL iterator type aliases and traversal methods derived directly from `std::vector`:
 
 ```cpp
+// Type aliases (same pattern for both Vector<V> and Matrix<M>)
+using iterator               = typename std::vector<V>::iterator;
+using const_iterator         = typename std::vector<V>::const_iterator;
+using reverse_iterator       = typename std::vector<V>::reverse_iterator;
+using const_reverse_iterator = typename std::vector<V>::const_reverse_iterator;
+
+// Traversal methods
 iterator               begin() / end()
 const_iterator         begin() const / end() const
 const_iterator         cbegin() / cend()

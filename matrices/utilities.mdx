@@ -1,7 +1,7 @@
 ---
 title: "Matrix Utilities: Transforms, Algebra, Norms, and Solvers"
 sidebarTitle: "Utilities"
-description: "Transpose, reshape, block extraction, determinant, inverse, rank, matrix norms, and linear system solve for Linea::Matrix<M>."
+description: "Structural transforms, scalar invariants, classical algebra, LU-based linear solvers, and matrix norms (Frobenius, spectral, 1, ∞) for Linea::Matrix<M>."
 ---
 
 `MatrixUtilities.hpp` extends `Matrix<M>` with a broad set of structural and numerical methods: shape inspection, in-place-free transformations, classical linear algebra (determinant, inverse, cofactor), LU-based linear solvers, and four categories of matrix norm. All declarations are part of the `Matrix<M>` class; implementations are provided in this header and depend on `Linea::Decompositions::LU` and `Linea::Decompositions::SVD`. Operations that require division or decomposition are constrained to `RealType<M>` via C++20 `requires` clauses.

@@ -260,24 +260,25 @@ Linea::IO::display(std::cout << "U =\n", lu.U());
 
 ## Format Options at a Glance
 
-<CardGroup cols={2}>
-  <Card title="MatrixFormat" icon="table">
-    | Field | Type | Default |
-    |---|---|---|
-    | `precision` | `size_t` | `2` |
-    | `width` | `size_t` | `2` |
-    | `scientific` | `bool` | `false` |
-    | `show_dimensions` | `bool` | `false` |
-  </Card>
-  <Card title="VectorFormat" icon="list">
-    | Field | Type | Default |
-    |---|---|---|
-    | `precision` | `size_t` | `2` |
-    | `width` | `size_t` | `2` |
-    | `scientific` | `bool` | `false` |
-    | `horizontal` | `bool` | `true` |
-  </Card>
-</CardGroup>
+The tables below summarise every field on both format structs with their types and default values.
+
+**`MatrixFormat`**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `precision` | `size_t` | `2` | Digits after the decimal point |
+| `width` | `size_t` | `2` | Minimum field width per element |
+| `scientific` | `bool` | `false` | `true` → scientific notation; `false` → fixed |
+| `show_dimensions` | `bool` | `false` | Print `"Matrix dimensions: RxC"` header when `true` |
+
+**`VectorFormat`**
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `precision` | `size_t` | `2` | Digits after the decimal point |
+| `width` | `size_t` | `2` | Minimum field width per element |
+| `scientific` | `bool` | `false` | `true` → scientific notation; `false` → fixed |
+| `horizontal` | `bool` | `true` | `true` → single-line `[a, b, c]`; `false` → one element per line |
 
 <Note>
   Stream flags and precision are saved with `os.flags()` and `os.precision()` before any formatting is applied, and are unconditionally restored before `display()` returns. Calling `display()` has no permanent side effects on the stream state.

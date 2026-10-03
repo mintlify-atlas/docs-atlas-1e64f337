@@ -154,7 +154,7 @@ This guide walks you through the most common Linea workflows — from constructi
     `Linea::IO::display()` writes a formatted representation of any vector or matrix to an `std::ostream`. It preserves the stream's original flags and precision after returning.
 
     ```cpp
-    // Print a vector (default: vertical format, fixed precision 4)
+    // Print a vector (default: horizontal format, fixed precision 2)
     Linea::IO::display(std::cout, x);
 
     // Chain with a label on the same stream

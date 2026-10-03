@@ -7,7 +7,7 @@ description: "All arithmetic operators, norms, dot product, distance, angle, out
 `Linea::Vector<V>` provides a complete set of linear algebra operations spanning element-wise arithmetic, inner and outer products, several vector norms, Euclidean distance, angular separation, matrix reshaping, vector concatenation, and subvector extraction. All operations defined in `VectorOperations.hpp` are implemented as RESTRICT-qualified raw-pointer loops for predictable, cache-friendly performance. Every operation that requires matching dimensions validates the constraint and throws `std::invalid_argument` on a mismatch — there are no silent dimension truncations.
 
 <Warning>
-All operations that require two vectors of the same size — addition, subtraction, Hadamard product, dot product, distance, and angle — throw `std::invalid_argument` when the sizes differ. Similarly, `reshape` throws if `rows * cols != size()`, and `segment` throws `std::out_of_range` if the requested range exceeds the vector's bounds.
+All operations that require two vectors of the same size — addition, subtraction, Hadamard product, dot product, distance, and angle — throw `std::invalid_argument` when the sizes differ. Similarly, `reshape` throws if `rows * columns != size()`, and `segment` throws `std::out_of_range` if the requested range exceeds the vector's bounds.
 </Warning>
 
 ---
@@ -218,10 +218,10 @@ auto M = a.outer(b);
 ### Reshape to matrix
 
 ```cpp
-Matrix<V> reshape(std::size_t rows, std::size_t cols) const;
+Matrix<V> reshape(std::size_t rows, std::size_t columns) const;
 ```
 
-Reinterprets the vector's elements as a row-major matrix of shape `(rows × cols)`. Throws `std::invalid_argument` if `rows * cols != size()`.
+Reinterprets the vector's elements as a row-major matrix of shape `(rows × columns)`. Throws `std::invalid_argument` if `rows * columns != size()`.
 
 ```cpp
 Linea::Vector<double> v{1.0, 2.0, 3.0, 4.0, 5.0, 6.0};

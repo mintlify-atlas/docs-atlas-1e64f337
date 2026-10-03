@@ -1,5 +1,5 @@
 ---
-title: "Error Handling and Exception Safety in Linea"
+title: "Linea Error Handling: Exceptions and Safety Guarantees"
 sidebarTitle: "Error Handling"
 description: "What exceptions Linea throws for dimension mismatches, out-of-range access, domain errors, and decomposition failures, and how to handle them."
 ---
@@ -28,6 +28,7 @@ Thrown when a pre-condition on object dimensions or structural requirements is v
 | `solve` (linear system) | LHS row count does not match RHS size |
 | `Matrix` initializer-list constructor | Empty outer list, empty inner row, or inconsistent row sizes |
 | `Vector::operator[]` | `index >= size()` |
+| `norm(VectorNorm::P, p)` | `p < 1` |
 
 ### `std::out_of_range`
 
@@ -52,11 +53,10 @@ Thrown when a mathematical operation receives input outside its valid domain.
 | Operation | Condition |
 |---|---|
 | `Matrix::operator/` (element-wise) | Any divisor element is zero |
-| `tan<DomainCheck::Enable>` | Cosine of any element is near zero |
-| `sqrt<DomainCheck::Enable>` | Any element is negative |
-| `log<DomainCheck::Enable>` | Any element is non-positive (≤ 0) |
-| `norm(VectorNorm::P, p)` | `p < 1` |
-| `norm_Lmax` | Vector is empty |
+| `Linea::tan<Linea::DomainCheck::Enable>` | Cosine of any element is near zero |
+| `Linea::sqrt<Linea::DomainCheck::Enable>` | Any element is negative |
+| `Linea::log<Linea::DomainCheck::Enable>` | Any element is non-positive (≤ 0) |
+| `norm(VectorNorm::Infinity)` | Vector is empty |
 | `mean()` | Matrix is empty |
 
 ### `std::runtime_error`
@@ -120,7 +120,7 @@ For element-wise transcendental operations, catch `std::domain_error`:
 
 ```cpp
 try {
-    auto result = sqrt<DomainCheck::Enable>(v);
+    auto result = Linea::sqrt<Linea::DomainCheck::Enable>(v);
 } catch (const std::domain_error& e) {
     std::cerr << "Domain error: " << e.what() << '\n';
 }
@@ -156,10 +156,10 @@ The default is `DomainCheck::Enable`. Passing `DomainCheck::Disable` removes all
 
 ```cpp
 // Validated (default) — may throw std::domain_error
-auto safe_result = sqrt<DomainCheck::Enable>(v);
+auto safe_result = Linea::sqrt<Linea::DomainCheck::Enable>(v);
 
 // Unvalidated — no checks, undefined behaviour for negative input
-auto fast_result = sqrt<DomainCheck::Disable>(v);
+auto fast_result = Linea::sqrt<Linea::DomainCheck::Disable>(v);
 ```
 
 <Tip>

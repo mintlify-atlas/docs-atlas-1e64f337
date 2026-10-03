@@ -1,7 +1,7 @@
 ---
-title: "Element-Wise Math Functions for Linea Matrices"
+title: "Element-Wise Mathematical Functions for Linea Matrix"
 sidebarTitle: "Math Functions"
-description: "Free functions sin, cos, tan, sqrt, log, exp, and pow applied element-wise to Linea::Matrix<M> with compile-time DomainCheck control."
+description: "Free functions sin, cos, tan, sqrt, log, exp, and pow applied element-wise to Linea::Matrix<N> with compile-time DomainCheck policy control."
 ---
 
 `MatrixMath.hpp` provides free functions that apply standard scalar mathematical transformations to every element of a `Matrix<N>` independently. All functions live in the `Linea` namespace, require `RealType<N>` (except the integer-exponent overload of `pow`), and run in O(m·n) with a single output allocation and contiguous row-major traversal. These are **component-wise** operations — they are not matrix functions in the operator-theoretic sense.

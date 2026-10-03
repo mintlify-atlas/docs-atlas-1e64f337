@@ -1,7 +1,7 @@
 ---
 title: "Householder QR Factorization for Least Squares in Linea"
 sidebarTitle: "QR"
-description: "Linea::Decompositions::HouseholderQR<T> computes A=QR using Householder reflections for numerically stable least-squares and rank detection."
+description: "Linea::Decompositions::HouseholderQR<T> computes A=QR using Householder reflections for numerically stable least-squares solving and rank detection."
 ---
 
 Householder QR factorization decomposes an m × n matrix **A** into an orthogonal factor **Q** and an upper-triangular factor **R** such that **A = QR**. Linea's `HouseholderQR<T>` uses a sequence of Householder reflections applied in-place, storing the reflectors compactly inside the modified matrix. This approach is backward stable and makes QR the preferred method for least-squares problems, particularly when the matrix is ill-conditioned.
@@ -58,7 +58,7 @@ tol = ε · max(m, n)
 explicit HouseholderQR(const Matrix<T>& A)
 ```
 
-Factorizes `A` immediately, computing rank, reflectors, and the upper-triangular **R** in one pass.
+Factorizes `A` immediately, computing rank, reflectors, and the upper-triangular **R** in one pass. No additional parameters are accepted.
 
 ## Accessors
 
